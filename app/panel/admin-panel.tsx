@@ -1,0 +1,1067 @@
+"use client"
+
+import { useMemo, useState } from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import {
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  LogOut,
+  Search,
+  Table as TableIcon,
+  CalendarDays,
+  Clock,
+  DollarSign,
+  CheckCircle2,
+  Users,
+  Heart,
+  Footprints,
+  ShieldCheck,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { LogoCircle } from "@/components/logo-circle"
+import { createClient } from "@/lib/supabase/client"
+import { STATUS_LABELS } from "@/lib/constants"
+
+export type AdminReservation = {
+  id: string
+  user_id: string
+  walker_id: string | null
+  plan_name: string
+  dogs_count: number
+  price_mxn: number
+  status: string
+  notes: string | null
+  created_at: string
+  scheduled_at: string | null
+  scheduled_until: string | null
+  zone: string | null
+  pickup_address: string | null
+  dog_name: string | null
+  dog_size: string | null
+  visibility?: string | null
+  payment_status?: string | null
+}
+
+const ALL_STATUSES = [
+  "buscando_paseador",
+  "confirmada",
+  "en_curso",
+  "completada",
+  "cancelada",
+  "sin_asignar",
+] as const
+
+const STATUS_BG: Record<string, string> = {
+  buscando_paseador: "bg-amber-100 text-amber-800",
+  confirmada: "bg-emerald-100 text-emerald-800",
+  en_curso: "bg-indigo-100 text-indigo-800",
+  completada: "bg-emerald-200 text-emerald-900",
+  cancelada: "bg-rose-100 text-rose-800 line-through",
+  sin_asignar: "bg-rose-100 text-rose-800",
+}
+
+// Paleta de colores para paseadores
+const WALKER_COLORS = [
+  "#3DCABD",
+  "#F59E0B",
+  "#3B82F6",
+  "#A855F7",
+  "#EF4444",
+  "#10B981",
+  "#EC4899",
+  "#0EA5E9",
+]
+
+function startOfWeek(d: Date) {
+  const date = new Date(d)
+  const day = date.getDay() // 0=dom, 1=lun
+  const diff = day === 0 ? -6 : 1 - day
+  date.setDate(date.getDate() + diff)
+  date.setHours(0, 0, 0, 0)
+  return date
+}
+
+function addDays(d: Date, n: number) {
+  const x = new Date(d)
+  x.setDate(x.getDate() + n)
+  return x
+}
+
+function fmtDateShort(d: Date) {
+  return d.toLocaleDateString("es-MX", { day: "numeric", month: "short" })
+}
+
+function fmtTime(s: string) {
+  return new Date(s).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })
+}
+
+function durationMin(start: string | null, end: string | null) {
+  if (!start || !end) return 30
+  return Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000))
+}
+
+export type AdminUser = {
+  id: string
+  full_name: string | null
+  phone: string | null
+  role: string
+  zone: string | null
+  banned?: boolean
+  created_at: string
+}
+
+export function AdminPanel({
+  fullName,
+  email,
+  reservations: initial,
+  ownerMap,
+  walkerMap,
+  allUsers = [],
+}: {
+  fullName: string | null
+  email: string
+  reservations: AdminReservation[]
+  ownerMap: Record<string, { name: string | null; phone: string | null }>
+  walkerMap: Record<string, { name: string | null }>
+  allUsers?: AdminUser[]
+}) {
+  const router = useRouter()
+  const [reservations, setReservations] = useState(initial)
+  const [users, setUsers] = useState(allUsers)
+  const [view, setView] = useState<"tabla" | "calendario" | "usuarios">("tabla")
+  const [updatingUser, setUpdatingUser] = useState<string | null>(null)
+  const [assignFor, setAssignFor] = useState<AdminReservation | null>(null)
+  const [assigning, setAssigning] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [newPaseo, setNewPaseo] = useState({
+    user_id: "",
+    walker_id: "", // vacío = no asignar (queda pending_admin)
+    plan_name: "Paseo de 1 día",
+    dogs_count: 1,
+    price_mxn: 110,
+    zone: "",
+    pickup_address: "",
+    dog_name: "",
+    dog_size: "mediano",
+    scheduled_at: "",
+    notes: "",
+  })
+
+  const allOwners = useMemo(() => users.filter((u) => u.role === "dueno" && !u.banned), [users])
+
+  const createReservation = async () => {
+    if (!newPaseo.user_id) { alert("Selecciona un cliente"); return }
+    if (!newPaseo.dog_name) { alert("Nombre del perro"); return }
+    if (!newPaseo.zone) { alert("Zona"); return }
+    if (!newPaseo.scheduled_at) { alert("Fecha y hora"); return }
+
+    setCreating(true)
+    const supabase = createClient()
+    const scheduled_at = new Date(newPaseo.scheduled_at).toISOString()
+    const scheduled_until = new Date(new Date(scheduled_at).getTime() + 60 * 60 * 1000).toISOString()
+
+    // Si admin escoge paseador → queda confirmado y público
+    // Si no → queda pending_admin para que el admin decida después
+    const assignedNow = newPaseo.walker_id !== ""
+    const { data, error } = await supabase
+      .from("reservations")
+      .insert({
+        user_id: newPaseo.user_id,
+        walker_id: assignedNow ? newPaseo.walker_id : null,
+        plan_name: newPaseo.plan_name,
+        dogs_count: newPaseo.dogs_count,
+        price_mxn: newPaseo.price_mxn,
+        status: assignedNow ? "confirmada" : "buscando_paseador",
+        visibility: assignedNow ? "public" : "pending_admin",
+        notes: newPaseo.notes || `Creado por admin`,
+        scheduled_at,
+        scheduled_until,
+        zone: newPaseo.zone,
+        pickup_address: newPaseo.pickup_address,
+        dog_name: newPaseo.dog_name,
+        dog_size: newPaseo.dog_size,
+      })
+      .select()
+      .single()
+    setCreating(false)
+    if (error) { alert(`Error: ${error.message}`); return }
+
+    setReservations((prev) => [data as AdminReservation, ...prev])
+    setNewPaseo({
+      user_id: "", walker_id: "", plan_name: "Paseo de 1 día", dogs_count: 1, price_mxn: 110,
+      zone: "", pickup_address: "", dog_name: "", dog_size: "mediano", scheduled_at: "", notes: "",
+    })
+    setShowCreateModal(false)
+
+    if (assignedNow) {
+      // Notifica al cliente que ya tiene paseador asignado
+      fetch("/api/notify-cliente", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: data.id, kind: "asignada" }),
+      }).catch(() => {})
+    } else {
+      // Confirmación al cliente de que se recibió la reserva (sin paseador todavía)
+      fetch("/api/notify-cliente", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: data.id, kind: "reservada" }),
+      }).catch(() => {})
+    }
+  }
+
+  const [showCreateModal, setShowCreateModal] = useState(false)
+
+  // Paseadores disponibles (no baneados) para asignación manual
+  const availableWalkers = useMemo(
+    () => users.filter((u) => u.role === "paseador" && !u.banned),
+    [users],
+  )
+
+  const assignWalker = async (reservationId: string, walkerId: string) => {
+    setAssigning(true)
+    const supabase = createClient()
+    // Al asignar manual: queda confirmada + visible + con paseador en un solo update
+    const { error } = await supabase
+      .from("reservations")
+      .update({
+        status: "confirmada",
+        walker_id: walkerId,
+        visibility: "public", // ya no es privada, queda lista para el paseador
+      })
+      .eq("id", reservationId)
+    setAssigning(false)
+    if (error) {
+      alert(`Error: ${error.message}`)
+      return
+    }
+    setReservations((prev) =>
+      prev.map((r) =>
+        r.id === reservationId
+          ? { ...r, walker_id: walkerId, status: "confirmada", visibility: "public" }
+          : r,
+      ),
+    )
+    setAssignFor(null)
+    // Notifica al cliente y al paseador
+    fetch("/api/notify-cliente", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reservationId, kind: "asignada" }),
+    }).catch(() => {})
+    // Notifica al paseador específico que el admin lo asignó
+    fetch("/api/notify-walker-assigned", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reservationId }),
+    }).catch(() => {})
+  }
+
+  const makePublic = async (id: string) => {
+    const supabase = createClient()
+    const { error } = await supabase.from("reservations").update({ visibility: "public" }).eq("id", id)
+    if (error) return alert(error.message)
+    setReservations((prev) => prev.map((r) => (r.id === id ? { ...r, visibility: "public" } : r)))
+    // Notifica a paseadores
+    fetch("/api/notify-paseadores", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reservationId: id }),
+    }).catch(() => {})
+  }
+
+  const togglePayment = async (id: string, paid: boolean) => {
+    const supabase = createClient()
+    const newStatus = paid ? "pagado" : "pendiente"
+    const { error } = await supabase.from("reservations").update({ payment_status: newStatus }).eq("id", id)
+    if (error) return alert(error.message)
+    setReservations((prev) => prev.map((r) => (r.id === id ? { ...r, payment_status: newStatus } : r)))
+  }
+
+  const updateUserRole = async (id: string, newRole: string) => {
+    if (!confirm(`¿Cambiar rol a ${newRole}?`)) return
+    setUpdatingUser(id)
+    const supabase = createClient()
+    const { error } = await supabase.from("profiles").update({ role: newRole }).eq("id", id)
+    setUpdatingUser(null)
+    if (error) {
+      alert(`Error: ${error.message}`)
+      return
+    }
+    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, role: newRole } : u)))
+  }
+
+  const toggleBan = async (id: string, banned: boolean) => {
+    if (!confirm(banned ? "¿Banear este usuario?" : "¿Reactivar este usuario?")) return
+    setUpdatingUser(id)
+    const supabase = createClient()
+    const { error } = await supabase.from("profiles").update({ banned }).eq("id", id)
+    setUpdatingUser(null)
+    if (error) {
+      alert(`Error: ${error.message}`)
+      return
+    }
+    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, banned } : u)))
+  }
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
+  const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string>("todos")
+  const [updating, setUpdating] = useState<string | null>(null)
+
+  const logout = async () => {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push("/")
+    router.refresh()
+  }
+
+  // Mapa paseador → color
+  const walkerColor = useMemo(() => {
+    const ids = Array.from(new Set(reservations.map((r) => r.walker_id).filter(Boolean) as string[]))
+    const map: Record<string, string> = {}
+    ids.forEach((id, i) => { map[id] = WALKER_COLORS[i % WALKER_COLORS.length] })
+    return map
+  }, [reservations])
+
+  // Reservas de la semana actual
+  const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart])
+  const weekReservations = useMemo(() => {
+    return reservations.filter((r) => {
+      if (!r.scheduled_at) return false
+      const d = new Date(r.scheduled_at)
+      return d >= weekStart && d <= addDays(weekStart, 7)
+    })
+  }, [reservations, weekStart])
+
+  // Métricas de la semana
+  const stats = useMemo(() => {
+    const active = weekReservations.filter((r) => r.status !== "cancelada")
+    const agendados = active.length
+    const completados = active.filter((r) => r.status === "completada").length
+    const totalMin = active.reduce((sum, r) => sum + durationMin(r.scheduled_at, r.scheduled_until), 0)
+    const totalH = Math.floor(totalMin / 60)
+    const totalRem = totalMin % 60
+    const totalIngresos = active.reduce((sum, r) => sum + Number(r.price_mxn), 0)
+    const ingresosCompletados = active
+      .filter((r) => r.status === "completada")
+      .reduce((sum, r) => sum + Number(r.price_mxn), 0)
+    const tasa = active.length > 0 ? Math.round((completados / active.length) * 100) : null
+    return { agendados, completados, totalMin, totalH, totalRem, totalIngresos, ingresosCompletados, tasa }
+  }, [weekReservations])
+
+  // Tabla filtrada
+  const filtered = useMemo(() => {
+    let arr = [...reservations]
+    if (statusFilter !== "todos") arr = arr.filter((r) => r.status === statusFilter)
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      arr = arr.filter((r) => {
+        const dog = (r.dog_name ?? "").toLowerCase()
+        const walker = (r.walker_id ? walkerMap[r.walker_id]?.name ?? "" : "").toLowerCase()
+        const owner = (ownerMap[r.user_id]?.name ?? "").toLowerCase()
+        const zone = (r.zone ?? "").toLowerCase()
+        return dog.includes(q) || walker.includes(q) || owner.includes(q) || zone.includes(q)
+      })
+    }
+    return arr.sort((a, b) => {
+      const ta = a.scheduled_at ? new Date(a.scheduled_at).getTime() : 0
+      const tb = b.scheduled_at ? new Date(b.scheduled_at).getTime() : 0
+      return tb - ta
+    })
+  }, [reservations, search, statusFilter, walkerMap, ownerMap])
+
+  // Cambio de estado
+  const updateStatus = async (id: string, status: string) => {
+    setUpdating(id)
+    const supabase = createClient()
+    const { error } = await supabase.from("reservations").update({ status }).eq("id", id)
+    setUpdating(null)
+    if (!error) {
+      setReservations((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)))
+      // Si se marca como completada, mandamos recordatorio de pago al dueño
+      if (status === "completada") {
+        fetch("/api/notify-pago", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reservationId: id }),
+        }).catch(() => {})
+      }
+    }
+  }
+
+  // Export CSV
+  const exportCSV = () => {
+    const rows = [
+      ["Fecha", "Hora", "Perro", "Tamaño", "Paseador", "Zona", "Duración (min)", "Precio MXN", "Estado", "Dueño"],
+      ...filtered.map((r) => [
+        r.scheduled_at ? new Date(r.scheduled_at).toLocaleDateString("es-MX") : "",
+        r.scheduled_at ? fmtTime(r.scheduled_at) : "",
+        r.dog_name ?? "",
+        r.dog_size ?? "",
+        r.walker_id ? walkerMap[r.walker_id]?.name ?? "" : "",
+        r.zone ?? "",
+        String(durationMin(r.scheduled_at, r.scheduled_until)),
+        String(r.price_mxn),
+        STATUS_LABELS[r.status] ?? r.status,
+        ownerMap[r.user_id]?.name ?? "",
+      ]),
+    ]
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `perrones-paseos-${new Date().toISOString().split("T")[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Calendario: días de la semana
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+  const hours = Array.from({ length: 15 }, (_, i) => i + 6) // 06:00 a 20:00
+  const dayNames = ["LUN", "MAR", "MIÉ", "JUE", "VIE", "SÁB", "DOM"]
+
+  const reservationsByDay = useMemo(() => {
+    const map: Record<string, AdminReservation[]> = {}
+    for (const d of days) map[d.toDateString()] = []
+    for (const r of weekReservations) {
+      if (!r.scheduled_at) continue
+      const key = new Date(r.scheduled_at).toDateString()
+      if (map[key]) map[key].push(r)
+    }
+    return map
+  }, [weekReservations, days])
+
+  const uniqueWalkers = useMemo(() => {
+    const set = new Set<string>()
+    reservations.forEach((r) => r.walker_id && set.add(r.walker_id))
+    return Array.from(set)
+  }, [reservations])
+
+  return (
+    <main className="min-h-svh bg-secondary/30">
+      <header className="border-b border-border bg-background">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 md:px-8">
+          <Link href="/" className="flex items-center gap-3">
+            <LogoCircle className="h-10 w-10" />
+            <span className="font-display text-xl font-extrabold tracking-tight">Perrones Cuu · Admin</span>
+          </Link>
+          <Button variant="outline" size="sm" onClick={logout} className="gap-1.5 rounded-full font-semibold">
+            <LogOut className="h-4 w-4" />
+            Salir
+          </Button>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-7xl px-5 py-8 md:px-8">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">{fullName ?? email}</p>
+          <Button onClick={() => setShowCreateModal(true)} className="rounded-full bg-primary font-bold text-primary-foreground hover:bg-primary/90">
+            + Nuevo paseo
+          </Button>
+        </div>
+
+        {/* Resumen de la semana */}
+        <section className="mt-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="font-display text-3xl font-extrabold tracking-tight">Resumen de la semana</h1>
+              <p className="text-sm text-muted-foreground">
+                {fmtDateShort(weekStart)} – {fmtDateShort(weekEnd)} {weekEnd.getFullYear()}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setWeekStart(addDays(weekStart, -7))}
+                className="rounded-full"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                onClick={() => setWeekStart(startOfWeek(new Date()))}
+                className="rounded-full bg-primary px-5 font-bold text-primary-foreground hover:bg-primary/90"
+              >
+                Esta semana
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setWeekStart(addDays(weekStart, 7))}
+                className="rounded-full"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              icon={<CalendarDays className="h-5 w-5 text-primary" />}
+              title="Paseos esta semana"
+              value={String(stats.agendados)}
+              sub={`${stats.agendados} agendados · ${stats.completados} completados`}
+            />
+            <StatCard
+              icon={<Clock className="h-5 w-5 text-primary" />}
+              title="Horas de paseo"
+              value={`${stats.totalH}h ${stats.totalRem}m`}
+              sub="Tiempo activo (sin cancelados)"
+            />
+            <StatCard
+              icon={<DollarSign className="h-5 w-5 text-primary" />}
+              title="Ingresos esperados"
+              value={`$${stats.totalIngresos.toLocaleString()}`}
+              sub={`$${stats.ingresosCompletados.toLocaleString()} ya completados`}
+            />
+            <StatCard
+              icon={<CheckCircle2 className="h-5 w-5 text-primary" />}
+              title="Tasa de completado"
+              value={stats.tasa !== null ? `${stats.tasa}%` : "—"}
+              sub={stats.tasa !== null ? "De los paseos de la semana" : "Sin paseos esta semana"}
+            />
+          </div>
+        </section>
+
+        {/* Toggle tabla / calendario / usuarios */}
+        <div className="mt-8 flex flex-wrap items-center gap-2 rounded-full bg-background p-1.5 shadow-sm w-fit">
+          <button
+            onClick={() => setView("tabla")}
+            className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-all ${
+              view === "tabla" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <TableIcon className="h-4 w-4" />
+            Tabla
+          </button>
+          <button
+            onClick={() => setView("calendario")}
+            className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-all ${
+              view === "calendario" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <Calendar className="h-4 w-4" />
+            Calendario
+          </button>
+          <button
+            onClick={() => setView("usuarios")}
+            className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-all ${
+              view === "usuarios" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <Users className="h-4 w-4" />
+            Usuarios <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-xs">{allUsers.length}</span>
+          </button>
+        </div>
+
+        {/* Vista tabla */}
+        {view === "tabla" && (
+          <section className="mt-6 rounded-3xl border border-border bg-background p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-display text-2xl font-extrabold tracking-tight">Registro de paseos</h2>
+              <Button onClick={exportCSV} className="rounded-full bg-primary font-bold text-primary-foreground hover:bg-primary/90">
+                <Download className="h-4 w-4" />
+                Exportar a Excel/CSV
+              </Button>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por perro, paseador, dueño o zona…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="rounded-full pl-10"
+                />
+              </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="rounded-full border border-border bg-background px-4 py-2 text-sm font-semibold"
+              >
+                <option value="todos">Todos los estados</option>
+                {ALL_STATUSES.map((s) => (
+                  <option key={s} value={s}>{STATUS_LABELS[s] ?? s}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                    <th className="pb-3 pr-4">Fecha</th>
+                    <th className="pb-3 pr-4">Perro</th>
+                    <th className="pb-3 pr-4">Paseador</th>
+                    <th className="pb-3 pr-4">Zona</th>
+                    <th className="pb-3 pr-4">Duración</th>
+                    <th className="pb-3 pr-4">Precio</th>
+                    <th className="pb-3 pr-4">Estado</th>
+                    <th className="pb-3 pr-4">Visibilidad</th>
+                    <th className="pb-3">Pago</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-8 text-center text-muted-foreground">
+                        Sin reservas con esos filtros.
+                      </td>
+                    </tr>
+                  ) : (
+                    filtered.map((r) => {
+                      // Solo muestra "Hacer público" si está PENDIENTE Y todavía sin asignar Y buscando paseador
+                      const canMakePublic = r.visibility === "pending_admin" && r.status === "buscando_paseador" && !r.walker_id
+                      const isPaid = r.payment_status === "pagado"
+                      return (
+                      <tr key={r.id} className={`border-b border-border/50 align-top ${canMakePublic ? "bg-amber-50" : ""}`}>
+                        <td className="py-3 pr-4 font-semibold">
+                          {r.scheduled_at ? (
+                            <>
+                              {new Date(r.scheduled_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
+                              <div className="text-xs text-muted-foreground">{fmtTime(r.scheduled_at)}</div>
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 pr-4">
+                          {r.dog_name ?? "—"}
+                          {r.dog_size && <div className="text-xs text-muted-foreground">{r.dog_size}</div>}
+                        </td>
+                        <td className="py-3 pr-4">
+                          {r.walker_id ? (
+                            walkerMap[r.walker_id]?.name ?? "—"
+                          ) : (
+                            <button
+                              onClick={() => setAssignFor(r)}
+                              className="rounded-full bg-primary/15 px-2.5 py-1 text-xs font-bold text-primary hover:bg-primary/25"
+                            >
+                              + Asignar
+                            </button>
+                          )}
+                        </td>
+                        <td className="py-3 pr-4">{r.zone ?? "—"}</td>
+                        <td className="py-3 pr-4">{durationMin(r.scheduled_at, r.scheduled_until)} min</td>
+                        <td className="py-3 pr-4 font-bold">${Number(r.price_mxn).toLocaleString()}</td>
+                        <td className="py-3 pr-4">
+                          <select
+                            value={r.status}
+                            disabled={updating === r.id}
+                            onChange={(e) => updateStatus(r.id, e.target.value)}
+                            className={`rounded-full px-3 py-1.5 text-xs font-bold ${STATUS_BG[r.status] ?? "bg-secondary"}`}
+                          >
+                            {ALL_STATUSES.map((s) => (
+                              <option key={s} value={s}>{STATUS_LABELS[s] ?? s}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-3 pr-4">
+                          {canMakePublic ? (
+                            <button
+                              onClick={() => makePublic(r.id)}
+                              className="rounded-full bg-amber-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-amber-600"
+                            >
+                              🔒 Hacer público
+                            </button>
+                          ) : r.visibility === "pending_admin" ? (
+                            <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-bold text-muted-foreground">
+                              —
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">
+                              🌐 Público
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3">
+                          <button
+                            onClick={() => togglePayment(r.id, !isPaid)}
+                            className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                              isPaid ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200" : "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                            }`}
+                          >
+                            {isPaid ? "✓ Pagado" : "⏳ Pendiente"}
+                          </button>
+                        </td>
+                      </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* Vista calendario */}
+        {view === "calendario" && (
+          <section className="mt-6 rounded-3xl border border-border bg-background p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setWeekStart(addDays(weekStart, -7))} className="gap-1.5 rounded-full">
+                  <ChevronLeft className="h-4 w-4" /> Semana anterior
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setWeekStart(startOfWeek(new Date()))} className="gap-1.5 rounded-full">
+                  <CalendarDays className="h-4 w-4" /> Hoy
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setWeekStart(addDays(weekStart, 7))} className="gap-1.5 rounded-full">
+                  Semana siguiente <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="font-display text-lg font-bold">
+                {fmtDateShort(weekStart)} – {fmtDateShort(weekEnd)} {weekEnd.getFullYear()}
+              </p>
+            </div>
+
+            {/* Leyenda de paseadores */}
+            {uniqueWalkers.length > 0 && (
+              <div className="mt-5 flex flex-wrap items-center gap-4 rounded-2xl bg-secondary/40 px-4 py-3 text-sm">
+                {uniqueWalkers.map((id) => (
+                  <span key={id} className="flex items-center gap-1.5">
+                    <span className="h-3 w-3 rounded-full" style={{ background: walkerColor[id] }} />
+                    {walkerMap[id]?.name ?? "Paseador"}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Grid del calendario */}
+            <div className="mt-5 overflow-x-auto">
+              <div className="grid min-w-[800px]" style={{ gridTemplateColumns: "60px repeat(7, 1fr)" }}>
+                {/* Header días */}
+                <div />
+                {days.map((d, i) => {
+                  const isToday = d.toDateString() === new Date().toDateString()
+                  return (
+                    <div key={i} className="border-b border-border pb-3 text-center">
+                      <div className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{dayNames[i]}</div>
+                      <div className={`font-display text-2xl font-extrabold ${isToday ? "text-primary" : ""}`}>
+                        {d.getDate()}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {/* Filas por hora */}
+                {hours.map((h) => (
+                  <FragmentRow
+                    key={h}
+                    hour={h}
+                    days={days}
+                    reservationsByDay={reservationsByDay}
+                    walkerColor={walkerColor}
+                    walkerMap={walkerMap}
+                  />
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Vista usuarios */}
+        {view === "usuarios" && (
+          <section className="mt-6 rounded-3xl border border-border bg-background p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-display text-2xl font-extrabold tracking-tight">Usuarios</h2>
+              <div className="flex gap-2 text-sm">
+                <span className="flex items-center gap-1.5 rounded-full bg-accent/40 px-3 py-1 font-bold">
+                  <Heart className="h-4 w-4" /> {allUsers.filter((u) => u.role === "dueno").length} Dueños
+                </span>
+                <span className="flex items-center gap-1.5 rounded-full bg-primary/15 px-3 py-1 font-bold text-primary">
+                  <Footprints className="h-4 w-4" /> {allUsers.filter((u) => u.role === "paseador").length} Paseadores
+                </span>
+                <span className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1 font-bold">
+                  <ShieldCheck className="h-4 w-4" /> {allUsers.filter((u) => u.role === "admin").length} Admins
+                </span>
+              </div>
+            </div>
+            <div className="mt-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                    <th className="pb-3 pr-4">Nombre</th>
+                    <th className="pb-3 pr-4">Rol</th>
+                    <th className="pb-3 pr-4">Teléfono</th>
+                    <th className="pb-3 pr-4">Zona</th>
+                    <th className="pb-3 pr-4">Estado</th>
+                    <th className="pb-3">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-muted-foreground">Sin usuarios.</td>
+                    </tr>
+                  ) : (
+                    users.map((u) => (
+                      <tr key={u.id} className={`border-b border-border/50 ${u.banned ? "opacity-50" : ""}`}>
+                        <td className="py-3 pr-4 font-semibold">{u.full_name ?? "—"}</td>
+                        <td className="py-3 pr-4">
+                          <select
+                            value={u.role}
+                            disabled={updatingUser === u.id}
+                            onChange={(e) => updateUserRole(u.id, e.target.value)}
+                            className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                              u.role === "admin"
+                                ? "bg-secondary text-foreground"
+                                : u.role === "paseador"
+                                ? "bg-primary/15 text-primary"
+                                : "bg-accent/40 text-accent-foreground"
+                            }`}
+                          >
+                            <option value="dueno">Dueño</option>
+                            <option value="paseador">Paseador</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </td>
+                        <td className="py-3 pr-4 text-muted-foreground">{u.phone ?? "—"}</td>
+                        <td className="py-3 pr-4 text-muted-foreground">{u.zone ?? "—"}</td>
+                        <td className="py-3 pr-4">
+                          {u.banned ? (
+                            <span className="rounded-full bg-destructive/15 px-2.5 py-0.5 text-xs font-bold text-destructive">Baneado</span>
+                          ) : (
+                            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800">Activo</span>
+                          )}
+                        </td>
+                        <td className="py-3">
+                          <button
+                            disabled={updatingUser === u.id}
+                            onClick={() => toggleBan(u.id, !u.banned)}
+                            className={`rounded-full px-3 py-1 text-xs font-bold transition-colors ${
+                              u.banned ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200" : "bg-destructive/15 text-destructive hover:bg-destructive/25"
+                            }`}
+                          >
+                            {u.banned ? "Reactivar" : "Banear"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+      </div>
+
+      {/* Modal crear paseo en nombre del cliente */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowCreateModal(false)}>
+          <div className="w-full max-w-2xl rounded-3xl bg-background p-6 shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-display text-xl font-extrabold">Crear paseo en nombre del cliente</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Útil cuando un cliente llama por teléfono para agendar.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="text-sm font-semibold">Cliente</label>
+                <select
+                  value={newPaseo.user_id}
+                  onChange={(e) => setNewPaseo({ ...newPaseo, user_id: e.target.value })}
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Selecciona cliente —</option>
+                  {allOwners.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.full_name ?? "Sin nombre"} {o.phone ? `· ${o.phone}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-semibold">Plan</label>
+                <select
+                  value={newPaseo.plan_name}
+                  onChange={(e) => {
+                    const price = e.target.value === "Paseo semanal" ? 450 : e.target.value === "Paseo de 3 días" ? 300 : 110
+                    setNewPaseo({ ...newPaseo, plan_name: e.target.value, price_mxn: price })
+                  }}
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="Paseo de 1 día">Paseo de 1 día — $110</option>
+                  <option value="Paseo de 3 días">Paseo de 3 días — $300</option>
+                  <option value="Paseo semanal">Paseo semanal — $450</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-semibold">Cuántos perros</label>
+                <Input type="number" min={1} max={5} value={newPaseo.dogs_count} onChange={(e) => setNewPaseo({ ...newPaseo, dogs_count: Number(e.target.value) })} />
+              </div>
+              <div>
+                <label className="text-sm font-semibold">Nombre del perro</label>
+                <Input value={newPaseo.dog_name} onChange={(e) => setNewPaseo({ ...newPaseo, dog_name: e.target.value })} placeholder="Toby" />
+              </div>
+              <div>
+                <label className="text-sm font-semibold">Tamaño</label>
+                <select value={newPaseo.dog_size} onChange={(e) => setNewPaseo({ ...newPaseo, dog_size: e.target.value })} className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
+                  <option value="pequeno">Pequeño</option>
+                  <option value="mediano">Mediano</option>
+                  <option value="grande">Grande</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-semibold">Fecha y hora</label>
+                <Input type="datetime-local" value={newPaseo.scheduled_at} onChange={(e) => setNewPaseo({ ...newPaseo, scheduled_at: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-sm font-semibold">Precio MXN</label>
+                <Input type="number" value={newPaseo.price_mxn} onChange={(e) => setNewPaseo({ ...newPaseo, price_mxn: Number(e.target.value) })} />
+              </div>
+              <div>
+                <label className="text-sm font-semibold">Zona</label>
+                <Input value={newPaseo.zone} onChange={(e) => setNewPaseo({ ...newPaseo, zone: e.target.value })} placeholder="Country Club" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-sm font-semibold">Dirección de recogida</label>
+                <Input value={newPaseo.pickup_address} onChange={(e) => setNewPaseo({ ...newPaseo, pickup_address: e.target.value })} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-sm font-semibold">Notas</label>
+                <Input value={newPaseo.notes} onChange={(e) => setNewPaseo({ ...newPaseo, notes: e.target.value })} placeholder="Notas opcionales" />
+              </div>
+
+              {/* Asignar paseador directo (opcional) */}
+              <div className="md:col-span-2 rounded-2xl bg-primary/5 p-4">
+                <label className="text-sm font-bold">Asignar paseador (opcional)</label>
+                <select
+                  value={newPaseo.walker_id}
+                  onChange={(e) => setNewPaseo({ ...newPaseo, walker_id: e.target.value })}
+                  className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Dejar privado (decidir después) —</option>
+                  {availableWalkers.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.full_name ?? "Sin nombre"} · Zona: {w.zone ?? "—"}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Si eliges un paseador, el paseo queda <b>confirmado</b> y se le notifica al cliente y al paseador.
+                  Si lo dejas en blanco, queda como <b>privado pendiente</b> para que decidas después.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => setShowCreateModal(false)} className="rounded-full border border-border px-4 py-2 text-sm font-semibold">Cancelar</button>
+              <Button onClick={createReservation} disabled={creating} className="rounded-full font-bold">
+                {creating ? "Creando..." : "Crear paseo"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal asignar paseador */}
+      {assignFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setAssignFor(null)}>
+          <div className="w-full max-w-md rounded-3xl bg-background p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-display text-xl font-extrabold">Asignar paseador</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Reserva en <b>{assignFor.zone ?? "—"}</b> · {assignFor.scheduled_at ? new Date(assignFor.scheduled_at).toLocaleDateString("es-MX") : ""}
+            </p>
+            <div className="mt-4 max-h-80 overflow-y-auto">
+              {availableWalkers.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">No hay paseadores activos.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {availableWalkers.map((w) => {
+                    const sameZone = w.zone === assignFor.zone
+                    return (
+                      <li key={w.id}>
+                        <button
+                          disabled={assigning}
+                          onClick={() => assignWalker(assignFor.id, w.id)}
+                          className="flex w-full items-center justify-between rounded-2xl border border-border p-3 text-left transition-colors hover:bg-secondary"
+                        >
+                          <div>
+                            <p className="font-semibold">{w.full_name ?? "Sin nombre"}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Zona: {w.zone ?? "—"}
+                              {sameZone && <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary">Misma zona</span>}
+                            </p>
+                          </div>
+                          <span className="text-xs font-bold text-primary">Asignar →</span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button onClick={() => setAssignFor(null)} className="rounded-full border border-border px-4 py-2 text-sm font-semibold">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  )
+}
+
+function StatCard({ icon, title, value, sub }: { icon: React.ReactNode; title: string; value: string; sub: string }) {
+  return (
+    <div className="rounded-3xl border border-border bg-background p-5 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15">{icon}</div>
+        <div>
+          <p className="text-sm font-bold text-muted-foreground">{title}</p>
+          <p className="mt-1 font-display text-3xl font-extrabold">{value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FragmentRow({
+  hour,
+  days,
+  reservationsByDay,
+  walkerColor,
+  walkerMap,
+}: {
+  hour: number
+  days: Date[]
+  reservationsByDay: Record<string, AdminReservation[]>
+  walkerColor: Record<string, string>
+  walkerMap: Record<string, { name: string | null }>
+}) {
+  return (
+    <>
+      <div className="border-b border-border/40 py-2 pr-2 text-right text-xs font-semibold text-muted-foreground">
+        {String(hour).padStart(2, "0")}:00
+      </div>
+      {days.map((d, i) => {
+        const dayKey = d.toDateString()
+        const items = (reservationsByDay[dayKey] ?? []).filter((r) => {
+          if (!r.scheduled_at) return false
+          const h = new Date(r.scheduled_at).getHours()
+          return h === hour
+        })
+        return (
+          <div key={i} className="relative min-h-14 border-b border-border/40 border-l p-1">
+            {items.map((r) => (
+              <div
+                key={r.id}
+                className="mb-1 rounded-lg px-2 py-1 text-xs font-bold text-white shadow"
+                style={{ background: r.walker_id ? walkerColor[r.walker_id] ?? "#888" : "#a0a0a0" }}
+                title={`${r.dog_name ?? ""} · ${r.walker_id ? walkerMap[r.walker_id]?.name ?? "" : "Sin asignar"} · ${r.zone ?? ""}`}
+              >
+                {r.scheduled_at ? fmtTime(r.scheduled_at) : ""} · {r.dog_name ?? "Sin perro"}
+              </div>
+            ))}
+          </div>
+        )
+      })}
+    </>
+  )
+}
