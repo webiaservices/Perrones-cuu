@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/cron/check-unassigned",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 9 * * *"
     }
   ]
 }
