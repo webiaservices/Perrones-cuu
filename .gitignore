@@ -17,3 +17,8 @@ node_modules
 # TypeScript cache
 tsconfig.tsbuildinfo
 *.tsbuildinfo
+
+# Cloudflare / OpenNext build outputs
+.open-next/
+.wrangler/
+worker-configuration.d.ts
