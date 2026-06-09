@@ -42,6 +42,7 @@ function SignUpForm() {
   const [contractOpen, setContractOpen] = useState(false)
   const [bankName, setBankName] = useState("")
   const [bankClabe, setBankClabe] = useState("")
+  const [birthDate, setBirthDate] = useState("")
   const [bankAccount, setBankAccount] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -93,6 +94,7 @@ function SignUpForm() {
             bank_name: role === "paseador" ? bankName : null,
             bank_clabe: role === "paseador" ? bankClabe : null,
             bank_account: role === "paseador" ? bankAccount : null,
+            birth_date: role === "paseador" ? (birthDate || null) : null,
           },
         },
       })
@@ -238,6 +240,18 @@ function SignUpForm() {
                     )
                   })}
                 </div>
+              </div>
+
+              {/* Fecha de nacimiento del paseador */}
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="birthDate">Fecha de nacimiento</Label>
+                <Input
+                  id="birthDate"
+                  type="date"
+                  value={birthDate}
+                  onChange={(e) => setBirthDate(e.target.value)}
+                  max={new Date().toISOString().split("T")[0]}
+                />
               </div>
 
               {/* Cuenta bancaria del paseador */}
