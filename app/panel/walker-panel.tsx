@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { LogoCircle } from "@/components/logo-circle"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { createClient } from "@/lib/supabase/client"
 import { walkerPayout, ZONES, WEEKDAYS } from "@/lib/constants"
@@ -103,7 +104,9 @@ export function WalkerPanel({
   const [updating, setUpdating] = useState<string | null>(null)
 
   // Editor de perfil
-  const [zone, setZone] = useState(initialZone ?? "")
+  const initialZoneIsCustom = !!initialZone && !ZONES.includes(initialZone)
+  const [zone, setZone] = useState(initialZoneIsCustom ? "Otra" : (initialZone ?? ""))
+  const [zoneOther, setZoneOther] = useState(initialZoneIsCustom ? initialZone! : "")
   const [days, setDays] = useState<Record<string, boolean>>(initialAvailableHours)
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileMsg, setProfileMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null)
@@ -116,7 +119,7 @@ export function WalkerPanel({
     const supabase = createClient()
     const { error } = await supabase
       .from("profiles")
-      .update({ zone: zone || null, available_hours: days })
+      .update({ zone: (zone === "Otra" ? (zoneOther || null) : (zone || null)), available_hours: days })
       .eq("id", userId)
     setSavingProfile(false)
     if (error) {
@@ -515,6 +518,13 @@ export function WalkerPanel({
                   {ZONES.map((z) => (<SelectItem key={z} value={z}>{z}</SelectItem>))}
                 </SelectContent>
               </Select>
+              {zone === "Otra" && (
+                <Input
+                  placeholder="¿Cuál colonia?"
+                  value={zoneOther}
+                  onChange={(e) => setZoneOther(e.target.value)}
+                />
+              )}
               <p className="text-xs text-muted-foreground">
                 Solo verás paseos disponibles en esta zona.
               </p>

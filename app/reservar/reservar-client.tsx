@@ -107,12 +107,14 @@ export function ReservarClient({
   })
   const [startHour, setStartHour] = useState("09:00")
   const [zone, setZone] = useState("")
+  const [zoneOther, setZoneOther] = useState("")
   const [pickupAddress, setPickupAddress] = useState("")
 
   const price = priceForDogs(initialPlan, dogsCount)
 
   const canAdvance1 = selectedDogIds.length > 0
-  const canAdvance2 = date && startHour && zone && pickupAddress.trim().length > 0
+  const canAdvance2 = date && startHour && zone && pickupAddress.trim().length > 0 && (zone !== "Otra" || zoneOther.trim().length > 0)
+  const effectiveZone = zone === "Otra" ? zoneOther : zone
 
   const goNext = () => {
     setError(null)
@@ -168,7 +170,7 @@ export function ReservarClient({
           notes: i === 0 ? notes : `${notes}${notes ? " · " : ""}Paseo ${i + 1} de ${walks} del paquete "${initialPlan.name}"`,
           scheduled_at: at.toISOString(),
           scheduled_until: until.toISOString(),
-          zone,
+          zone: effectiveZone,
           pickup_address: pickupAddress,
           dog_name: dogNames,
           dog_size: dogSizes,
@@ -465,6 +467,13 @@ export function ReservarClient({
                         {ZONES.map((z) => (<SelectItem key={z} value={z}>{z}</SelectItem>))}
                       </SelectContent>
                     </Select>
+                    {zone === "Otra" && (
+                      <Input
+                        placeholder="¿Cuál colonia?"
+                        value={zoneOther}
+                        onChange={(e) => setZoneOther(e.target.value)}
+                      />
+                    )}
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="pickupAddress">Dirección donde recogemos a tu perro *</Label>
@@ -528,7 +537,7 @@ export function ReservarClient({
                   </li>
                   <li className="flex items-start gap-3">
                     <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                    <span>{zone} · {pickupAddress}</span>
+                    <span>{effectiveZone} · {pickupAddress}</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />

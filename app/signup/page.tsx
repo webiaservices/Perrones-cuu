@@ -36,6 +36,7 @@ function SignUpForm() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [zone, setZone] = useState("")
+  const [zoneOther, setZoneOther] = useState("")
   const [days, setDays] = useState<string[]>([])
   const [accepted, setAccepted] = useState(false)
   const [contractOpen, setContractOpen] = useState(false)
@@ -87,7 +88,7 @@ function SignUpForm() {
             full_name: fullName,
             phone,
             role,
-            zone: role === "paseador" ? zone : null,
+            zone: role === "paseador" ? (zone === "Otra" ? zoneOther : zone) : null,
             available_hours: role === "paseador" ? availableHours : {},
             bank_name: role === "paseador" ? bankName : null,
             bank_clabe: role === "paseador" ? bankClabe : null,
@@ -206,6 +207,14 @@ function SignUpForm() {
                     ))}
                   </SelectContent>
                 </Select>
+                {zone === "Otra" && (
+                  <Input
+                    placeholder="¿Cuál colonia?"
+                    value={zoneOther}
+                    onChange={(e) => setZoneOther(e.target.value)}
+                    required
+                  />
+                )}
               </div>
               <div className="flex flex-col gap-2">
                 <Label>Días disponibles</Label>

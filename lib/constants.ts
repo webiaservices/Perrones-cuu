@@ -11,18 +11,26 @@ export const BRAND = {
   },
 }
 
-// Zonas de Ciudad Chihuahua
+// Zonas (colonias) de Ciudad Chihuahua
 export const ZONES = [
-  "Country Club",
-  "Quintas del Sol",
-  "San Felipe",
-  "Cumbres",
-  "Vistas Cerro Grande",
-  "Campestre",
-  "Las Águilas",
-  "Saucito",
   "Centro",
+  "Campesina",
+  "San Felipe",
+  "San Felipe Viejo",
+  "Panamericana",
+  "Santo Niño",
+  "Guadalupe",
+  "Santa Rita",
+  "Santa Rosa",
+  "San Rafael",
+  "Industrial",
+  "Nombre de Dios",
+  "Granjas",
   "Mirador",
+  "Lomas del Santuario",
+  "Club Campestre",
+  "Tecnológico",
+  "Otra",
 ]
 
 export type DogSize = "pequeno" | "mediano" | "grande"
