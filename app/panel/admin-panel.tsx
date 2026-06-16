@@ -44,6 +44,8 @@ export type AdminReservation = {
   dog_size: string | null
   visibility?: string | null
   payment_status?: string | null
+  manual_client_name?: string | null
+  manual_client_phone?: string | null
 }
 
 const ALL_STATUSES = [
@@ -137,8 +139,11 @@ export function AdminPanel({
   const [assignFor, setAssignFor] = useState<AdminReservation | null>(null)
   const [assigning, setAssigning] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [clientMode, setClientMode] = useState<"registered" | "manual">("registered")
   const [newPaseo, setNewPaseo] = useState({
     user_id: "",
+    manual_client_name: "",
+    manual_client_phone: "",
     walker_id: "", // vacío = no asignar (queda pending_admin)
     plan_name: "Paseo de 1 día",
     dogs_count: 1,
@@ -154,7 +159,8 @@ export function AdminPanel({
   const allOwners = useMemo(() => users.filter((u) => u.role === "dueno" && !u.banned), [users])
 
   const createReservation = async () => {
-    if (!newPaseo.user_id) { alert("Selecciona un cliente"); return }
+    if (clientMode === "registered" && !newPaseo.user_id) { alert("Selecciona un cliente"); return }
+    if (clientMode === "manual" && !newPaseo.manual_client_name.trim()) { alert("Nombre del cliente"); return }
     if (!newPaseo.dog_name) { alert("Nombre del perro"); return }
     if (!newPaseo.zone) { alert("Zona"); return }
     if (!newPaseo.scheduled_at) { alert("Fecha y hora"); return }
@@ -164,20 +170,27 @@ export function AdminPanel({
     const scheduled_at = new Date(newPaseo.scheduled_at).toISOString()
     const scheduled_until = new Date(new Date(scheduled_at).getTime() + 60 * 60 * 1000).toISOString()
 
+    // Para cliente manual: usa el admin como user_id pero guarda los datos manuales
+    const { data: { user: currentAdmin } } = await supabase.auth.getUser()
+    const userId = clientMode === "registered" ? newPaseo.user_id : currentAdmin?.id
+    if (!userId) { setCreating(false); alert("Error: admin no identificado"); return }
+
     // Si admin escoge paseador → queda confirmado y público
     // Si no → queda pending_admin para que el admin decida después
     const assignedNow = newPaseo.walker_id !== ""
     const { data, error } = await supabase
       .from("reservations")
       .insert({
-        user_id: newPaseo.user_id,
+        user_id: userId,
+        manual_client_name: clientMode === "manual" ? newPaseo.manual_client_name : null,
+        manual_client_phone: clientMode === "manual" ? newPaseo.manual_client_phone : null,
         walker_id: assignedNow ? newPaseo.walker_id : null,
         plan_name: newPaseo.plan_name,
         dogs_count: newPaseo.dogs_count,
         price_mxn: newPaseo.price_mxn,
         status: assignedNow ? "confirmada" : "buscando_paseador",
         visibility: assignedNow ? "public" : "pending_admin",
-        notes: newPaseo.notes || `Creado por admin`,
+        notes: newPaseo.notes || (clientMode === "manual" ? "Cliente manual (sin registro)" : "Creado por admin"),
         scheduled_at,
         scheduled_until,
         zone: newPaseo.zone,
@@ -192,25 +205,29 @@ export function AdminPanel({
 
     setReservations((prev) => [data as AdminReservation, ...prev])
     setNewPaseo({
-      user_id: "", walker_id: "", plan_name: "Paseo de 1 día", dogs_count: 1, price_mxn: 110,
+      user_id: "", manual_client_name: "", manual_client_phone: "", walker_id: "", plan_name: "Paseo de 1 día", dogs_count: 1, price_mxn: 110,
       zone: "", pickup_address: "", dog_name: "", dog_size: "mediano", scheduled_at: "", notes: "",
     })
+    setClientMode("registered")
     setShowCreateModal(false)
 
-    if (assignedNow) {
-      // Notifica al cliente que ya tiene paseador asignado
-      fetch("/api/notify-cliente", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reservationId: data.id, kind: "asignada" }),
-      }).catch(() => {})
-    } else {
-      // Confirmación al cliente de que se recibió la reserva (sin paseador todavía)
-      fetch("/api/notify-cliente", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reservationId: data.id, kind: "reservada" }),
-      }).catch(() => {})
+    // Solo notifica por correo si el cliente está registrado (los manuales no tienen email)
+    if (clientMode === "registered") {
+      if (assignedNow) {
+        // Notifica al cliente que ya tiene paseador asignado
+        fetch("/api/notify-cliente", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reservationId: data.id, kind: "asignada" }),
+        }).catch(() => {})
+      } else {
+        // Confirmación al cliente de que se recibió la reserva (sin paseador todavía)
+        fetch("/api/notify-cliente", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reservationId: data.id, kind: "reservada" }),
+        }).catch(() => {})
+      }
     }
   }
 
@@ -362,7 +379,7 @@ export function AdminPanel({
       arr = arr.filter((r) => {
         const dog = (r.dog_name ?? "").toLowerCase()
         const walker = (r.walker_id ? walkerMap[r.walker_id]?.name ?? "" : "").toLowerCase()
-        const owner = (ownerMap[r.user_id]?.name ?? "").toLowerCase()
+        const owner = (r.manual_client_name ?? ownerMap[r.user_id]?.name ?? "").toLowerCase()
         const zone = (r.zone ?? "").toLowerCase()
         return dog.includes(q) || walker.includes(q) || owner.includes(q) || zone.includes(q)
       })
@@ -407,7 +424,7 @@ export function AdminPanel({
         String(durationMin(r.scheduled_at, r.scheduled_until)),
         String(r.price_mxn),
         STATUS_LABELS[r.status] ?? r.status,
-        ownerMap[r.user_id]?.name ?? "",
+        r.manual_client_name ?? ownerMap[r.user_id]?.name ?? "",
       ]),
     ]
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n")
@@ -634,6 +651,12 @@ export function AdminPanel({
                         <td className="py-3 pr-4">
                           {r.dog_name ?? "—"}
                           {r.dog_size && <div className="text-xs text-muted-foreground">{r.dog_size}</div>}
+                          {r.manual_client_name && (
+                            <div className="text-xs text-muted-foreground">
+                              Cliente: {r.manual_client_name}
+                              {r.manual_client_phone ? ` · ${r.manual_client_phone}` : ""}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 pr-4">
                           {r.walker_id ? (
@@ -860,21 +883,58 @@ export function AdminPanel({
               Útil cuando un cliente llama por teléfono para agendar.
             </p>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div className="md:col-span-2">
-                <label className="text-sm font-semibold">Cliente</label>
-                <select
-                  value={newPaseo.user_id}
-                  onChange={(e) => setNewPaseo({ ...newPaseo, user_id: e.target.value })}
-                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              <div className="md:col-span-2 flex gap-2 rounded-full bg-secondary/40 p-1">
+                <button
+                  type="button"
+                  onClick={() => setClientMode("registered")}
+                  className={`flex-1 rounded-full px-4 py-2 text-sm font-bold transition-colors ${clientMode === "registered" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`}
                 >
-                  <option value="">— Selecciona cliente —</option>
-                  {allOwners.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.full_name ?? "Sin nombre"} {o.phone ? `· ${o.phone}` : ""}
-                    </option>
-                  ))}
-                </select>
+                  Cliente registrado
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClientMode("manual")}
+                  className={`flex-1 rounded-full px-4 py-2 text-sm font-bold transition-colors ${clientMode === "manual" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`}
+                >
+                  Cliente manual (sin mail)
+                </button>
               </div>
+              {clientMode === "registered" ? (
+                <div className="md:col-span-2">
+                  <label className="text-sm font-semibold">Cliente</label>
+                  <select
+                    value={newPaseo.user_id}
+                    onChange={(e) => setNewPaseo({ ...newPaseo, user_id: e.target.value })}
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">— Selecciona cliente —</option>
+                    {allOwners.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.full_name ?? "Sin nombre"} {o.phone ? `· ${o.phone}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-sm font-semibold">Nombre del cliente</label>
+                    <Input
+                      value={newPaseo.manual_client_name}
+                      onChange={(e) => setNewPaseo({ ...newPaseo, manual_client_name: e.target.value })}
+                      placeholder="Ej. María Lopez"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold">Teléfono (opcional)</label>
+                    <Input
+                      value={newPaseo.manual_client_phone}
+                      onChange={(e) => setNewPaseo({ ...newPaseo, manual_client_phone: e.target.value })}
+                      placeholder="614-123-4567"
+                    />
+                  </div>
+                </>
+              )}
               <div>
                 <label className="text-sm font-semibold">Plan</label>
                 <select
