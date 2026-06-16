@@ -615,6 +615,7 @@ export function AdminPanel({
                   <tr className="border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted-foreground">
                     <th className="pb-3 pr-4">Fecha</th>
                     <th className="pb-3 pr-4">Perro</th>
+                    <th className="pb-3 pr-4">Cliente</th>
                     <th className="pb-3 pr-4">Paseador</th>
                     <th className="pb-3 pr-4">Zona</th>
                     <th className="pb-3 pr-4">Duración</th>
@@ -627,7 +628,7 @@ export function AdminPanel({
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-muted-foreground">
+                      <td colSpan={10} className="py-8 text-center text-muted-foreground">
                         Sin reservas con esos filtros.
                       </td>
                     </tr>
@@ -651,16 +652,21 @@ export function AdminPanel({
                         <td className="py-3 pr-4">
                           {r.dog_name ?? "—"}
                           {r.dog_size && <div className="text-xs text-muted-foreground">{r.dog_size}</div>}
-                          {r.manual_client_name && (
+                        </td>
+                        <td className="py-3 pr-4">
+                          {r.manual_client_name ?? ownerMap[r.user_id]?.name ?? "—"}
+                          {(r.manual_client_phone ?? ownerMap[r.user_id]?.phone) && (
                             <div className="text-xs text-muted-foreground">
-                              Cliente: {r.manual_client_name}
-                              {r.manual_client_phone ? ` · ${r.manual_client_phone}` : ""}
+                              {r.manual_client_phone ?? ownerMap[r.user_id]?.phone}
                             </div>
                           )}
                         </td>
                         <td className="py-3 pr-4">
                           {r.walker_id ? (
-                            walkerMap[r.walker_id]?.name ?? "—"
+                            <>
+                              {walkerMap[r.walker_id]?.name ?? "Paseador"}
+                              <div className="text-[10px] text-muted-foreground">ID: {r.walker_id.slice(0, 8)}</div>
+                            </>
                           ) : (
                             <button
                               onClick={() => setAssignFor(r)}
