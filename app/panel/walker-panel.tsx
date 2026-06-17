@@ -97,7 +97,7 @@ export function WalkerPanel({
 }) {
   const router = useRouter()
   const [reservations, setReservations] = useState(initial)
-  const [tab, setTab] = useState<Tab>("hoy")
+  const [tab, setTab] = useState<Tab>("disponibles")
   const [view, setView] = useState<"lista" | "calendario">("lista")
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const [selectedReservation, setSelectedReservation] = useState<WalkerReservation | null>(null)
