@@ -46,6 +46,9 @@ export type AdminReservation = {
   payment_status?: string | null
   manual_client_name?: string | null
   manual_client_phone?: string | null
+  package_id?: string | null
+  package_index?: number | null
+  package_total?: number | null
 }
 
 const ALL_STATUSES = [
@@ -372,7 +375,8 @@ export function AdminPanel({
 
   // Tabla filtrada
   const filtered = useMemo(() => {
-    let arr = [...reservations]
+    // Agrupar paseos recurrentes: solo mostrar el primero de cada paquete
+    let arr = reservations.filter((r) => !r.package_id || (r.package_index ?? 1) === 1)
     if (statusFilter !== "todos") arr = arr.filter((r) => r.status === statusFilter)
     if (search.trim()) {
       const q = search.toLowerCase()
@@ -390,6 +394,18 @@ export function AdminPanel({
       return tb - ta
     })
   }, [reservations, search, statusFilter, walkerMap, ownerMap])
+
+  // Borrar paseo (cancelado o cualquier estado, solo admin)
+  const deleteReservation = async (id: string) => {
+    const r = reservations.find((x) => x.id === id)
+    if (!confirm(`¿Borrar definitivamente este paseo${r?.dog_name ? ` de ${r.dog_name}` : ""}?`)) return
+    const supabase = createClient()
+    // Si es paquete, borra todos los del paquete
+    const query = supabase.from("reservations").delete()
+    const { error } = r?.package_id ? await query.eq("package_id", r.package_id) : await query.eq("id", id)
+    if (error) { alert(`Error: ${error.message}`); return }
+    setReservations((prev) => prev.filter((x) => (r?.package_id ? x.package_id !== r.package_id : x.id !== id)))
+  }
 
   // Cambio de estado
   const updateStatus = async (id: string, status: string) => {
@@ -644,6 +660,11 @@ export function AdminPanel({
                             <>
                               {new Date(r.scheduled_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
                               <div className="text-xs text-muted-foreground">{fmtTime(r.scheduled_at)}</div>
+                              {r.package_total && r.package_total > 1 && (
+                                <span className="mt-1 inline-block rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary">
+                                  Paquete · {r.package_total} paseos
+                                </span>
+                              )}
                             </>
                           ) : (
                             <span className="text-muted-foreground">—</span>
@@ -710,14 +731,25 @@ export function AdminPanel({
                           )}
                         </td>
                         <td className="py-3">
-                          <button
-                            onClick={() => togglePayment(r.id, !isPaid)}
-                            className={`rounded-full px-2.5 py-1 text-xs font-bold ${
-                              isPaid ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200" : "bg-amber-100 text-amber-800 hover:bg-amber-200"
-                            }`}
-                          >
-                            {isPaid ? "✓ Pagado" : "⏳ Pendiente"}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => togglePayment(r.id, !isPaid)}
+                              className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                                isPaid ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200" : "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                              }`}
+                            >
+                              {isPaid ? "✓ Pagado" : "⏳ Pendiente"}
+                            </button>
+                            {r.status === "cancelada" && (
+                              <button
+                                onClick={() => deleteReservation(r.id)}
+                                title="Borrar definitivamente"
+                                className="rounded-full bg-red-100 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-200"
+                              >
+                                🗑
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                       )

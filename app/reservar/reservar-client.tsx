@@ -155,6 +155,7 @@ export function ReservarClient({
       // El precio total se asigna al PRIMER paseo (los demás $0) para no contabilizar dos veces.
       const walks = Math.max(1, initialPlan.walksCount ?? 1)
       const startDate = new Date(scheduledAt)
+      const packageId = walks > 1 ? crypto.randomUUID() : null
       const rows = []
       for (let i = 0; i < walks; i++) {
         const at = new Date(startDate)
@@ -180,6 +181,9 @@ export function ReservarClient({
           visibility: "pending_admin",
           payment_status: "pendiente",
           responsibility_accepted: true,
+          package_id: packageId,
+          package_index: walks > 1 ? i + 1 : null,
+          package_total: walks > 1 ? walks : null,
         })
       }
 

@@ -24,6 +24,9 @@ export type Reservation = {
   dog_name: string | null
   dog_size: string | null
   walker_id: string | null
+  package_id?: string | null
+  package_index?: number | null
+  package_total?: number | null
 }
 
 const ADMIN_STATUSES = ["buscando_paseador", "confirmada", "en_curso", "completada", "cancelada", "sin_asignar"] as const
@@ -71,11 +74,37 @@ export function PanelClient({
   const updateStatus = async (id: string, status: string) => {
     setUpdating(id)
     const supabase = createClient()
-    const { error } = await supabase.from("reservations").update({ status }).eq("id", id)
+    // Si es paquete, actualiza TODOS los paseos del paquete
+    const target = reservations.find((r) => r.id === id)
+    const query = supabase.from("reservations").update({ status })
+    const { error } = target?.package_id
+      ? await query.eq("package_id", target.package_id)
+      : await query.eq("id", id)
     setUpdating(null)
     if (!error) {
-      setReservations((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)))
+      setReservations((prev) =>
+        prev.map((r) =>
+          (target?.package_id ? r.package_id === target.package_id : r.id === id)
+            ? { ...r, status }
+            : r,
+        ),
+      )
     }
+  }
+
+  // Dueño puede borrar paseos cancelados
+  const deleteReservation = async (id: string) => {
+    if (!confirm("¿Borrar este paseo cancelado definitivamente?")) return
+    const supabase = createClient()
+    const target = reservations.find((r) => r.id === id)
+    const query = supabase.from("reservations").delete()
+    const { error } = target?.package_id
+      ? await query.eq("package_id", target.package_id)
+      : await query.eq("id", id)
+    if (error) { alert(`Error: ${error.message}`); return }
+    setReservations((prev) =>
+      prev.filter((r) => (target?.package_id ? r.package_id !== target.package_id : r.id !== id)),
+    )
   }
 
   const acceptJale = async (id: string) => {
@@ -127,12 +156,15 @@ export function PanelClient({
     return new Date(s).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })
   }
 
+  // Agrupar paseos recurrentes: solo mostrar el primero de cada paquete
+  const groupedReservations = reservations.filter((r) => !r.package_id || (r.package_index ?? 1) === 1)
+
   // Para paseador: separar jales disponibles vs propios
   const availableJales = isWalker
-    ? reservations.filter((r) => r.status === "buscando_paseador" && !r.walker_id)
+    ? groupedReservations.filter((r) => r.status === "buscando_paseador" && !r.walker_id)
     : []
-  const myWalks = isWalker ? reservations.filter((r) => r.walker_id === userId) : []
-  const visible = isWalker ? [...availableJales, ...myWalks] : reservations
+  const myWalks = isWalker ? groupedReservations.filter((r) => r.walker_id === userId) : []
+  const visible = isWalker ? [...availableJales, ...myWalks] : groupedReservations
 
   return (
     <main className="min-h-svh bg-[#f0fafa]">
@@ -352,6 +384,15 @@ export function PanelClient({
                               Cancelar paseo
                             </Button>
                           </>
+                        )}
+                        {!isWalker && r.status === "cancelada" && (
+                          <Button
+                            onClick={() => deleteReservation(r.id)}
+                            variant="outline"
+                            className="rounded-full border-destructive/40 font-bold text-destructive hover:bg-destructive/10"
+                          >
+                            🗑 Borrar
+                          </Button>
                         )}
 
                       {/* Botones aceptar/rechazar para paseador en jales disponibles */}

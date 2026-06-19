@@ -45,6 +45,9 @@ export type WalkerReservation = {
   dog_name: string | null
   dog_size: string | null
   walker_id: string | null
+  package_id?: string | null
+  package_index?: number | null
+  package_total?: number | null
 }
 
 type Tab = "hoy" | "semana" | "proximos" | "disponibles"
@@ -142,13 +145,15 @@ export function WalkerPanel({
   const acceptPaseo = async (id: string) => {
     setUpdating(id)
     const supabase = createClient()
-    const { data, error } = await supabase
+    // Si es paquete, acepta TODOS los paseos del paquete
+    const target = reservations.find((r) => r.id === id)
+    const query = supabase
       .from("reservations")
       .update({ status: "confirmada", walker_id: userId })
-      .eq("id", id)
       .is("walker_id", null)
-      .select("id")
-      .single()
+    const { data, error } = target?.package_id
+      ? await query.eq("package_id", target.package_id).select("id")
+      : await query.eq("id", id).select("id").single()
     setUpdating(null)
     if (error || !data) {
       alert("Otro paseador ya tomó este paseo.")
@@ -156,7 +161,11 @@ export function WalkerPanel({
       return
     }
     setReservations((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status: "confirmada", walker_id: userId } : r)),
+      prev.map((r) =>
+        (target?.package_id ? r.package_id === target.package_id : r.id === id)
+          ? { ...r, status: "confirmada", walker_id: userId }
+          : r,
+      ),
     )
     // Notifica al cliente que su paseo fue aceptado
     fetch("/api/notify-cliente", {
@@ -187,14 +196,19 @@ export function WalkerPanel({
   }
 
   // Mis paseos = los asignados a mí
+  // Agrupar paseos recurrentes: solo el primero del paquete
+  const groupedReservations = useMemo(
+    () => reservations.filter((r) => !r.package_id || (r.package_index ?? 1) === 1),
+    [reservations],
+  )
   const myReservations = useMemo(
-    () => reservations.filter((r) => r.walker_id === userId),
-    [reservations, userId],
+    () => groupedReservations.filter((r) => r.walker_id === userId),
+    [groupedReservations, userId],
   )
   // Paseos disponibles para tomar
   const availableReservations = useMemo(
-    () => reservations.filter((r) => r.status === "buscando_paseador" && !r.walker_id),
-    [reservations],
+    () => groupedReservations.filter((r) => r.status === "buscando_paseador" && !r.walker_id),
+    [groupedReservations],
   )
 
   // Stats
