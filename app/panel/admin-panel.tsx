@@ -819,6 +819,7 @@ export function AdminPanel({
                     reservationsByDay={reservationsByDay}
                     walkerColor={walkerColor}
                     walkerMap={walkerMap}
+                    ownerMap={ownerMap}
                   />
                 ))}
               </div>
@@ -1126,12 +1127,14 @@ function FragmentRow({
   reservationsByDay,
   walkerColor,
   walkerMap,
+  ownerMap,
 }: {
   hour: number
   days: Date[]
   reservationsByDay: Record<string, AdminReservation[]>
   walkerColor: Record<string, string>
   walkerMap: Record<string, { name: string | null }>
+  ownerMap: Record<string, { name: string | null; phone: string | null }>
 }) {
   return (
     <>
@@ -1147,16 +1150,22 @@ function FragmentRow({
         })
         return (
           <div key={i} className="relative min-h-14 border-b border-border/40 border-l p-1">
-            {items.map((r) => (
-              <div
-                key={r.id}
-                className="mb-1 rounded-lg px-2 py-1 text-xs font-bold text-white shadow"
-                style={{ background: r.walker_id ? walkerColor[r.walker_id] ?? "#888" : "#a0a0a0" }}
-                title={`${r.dog_name ?? ""} · ${r.walker_id ? walkerMap[r.walker_id]?.name ?? "" : "Sin asignar"} · ${r.zone ?? ""}`}
-              >
-                {r.scheduled_at ? fmtTime(r.scheduled_at) : ""} · {r.dog_name ?? "Sin perro"}
-              </div>
-            ))}
+            {items.map((r) => {
+              const walkerName = r.walker_id ? walkerMap[r.walker_id]?.name ?? "Paseador" : null
+              const clienteName = r.manual_client_name ?? ownerMap[r.user_id]?.name ?? ""
+              return (
+                <div
+                  key={r.id}
+                  className="mb-1 rounded-lg px-2 py-1 text-[11px] leading-tight font-bold text-white shadow"
+                  style={{ background: r.walker_id ? walkerColor[r.walker_id] ?? "#888" : "#a0a0a0" }}
+                  title={`${r.dog_name ?? ""} · ${walkerName ?? "Sin paseador"} · Cliente: ${clienteName} · ${r.zone ?? ""}`}
+                >
+                  <div>{r.scheduled_at ? fmtTime(r.scheduled_at) : ""} · {r.dog_name ?? "Sin perro"}</div>
+                  <div className="opacity-90">👤 {walkerName ?? "Sin asignar"}</div>
+                  {clienteName && <div className="opacity-90">🐶 {clienteName}</div>}
+                </div>
+              )
+            })}
           </div>
         )
       })}
