@@ -173,6 +173,12 @@ export function WalkerPanel({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reservationId: id, kind: "asignada" }),
     }).catch(() => {})
+    // Notifica al admin con toda la info del paseador que acepto
+    fetch("/api/notify-admin-aceptado", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reservationId: id }),
+    }).catch(() => {})
   }
 
   const rejectPaseo = (id: string) => {
