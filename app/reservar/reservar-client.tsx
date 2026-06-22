@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { PawPrint, Clock, ShieldCheck, ArrowLeft, ArrowRight, Check, MapPin } from "lucide-react"
@@ -100,12 +100,22 @@ export function ReservarClient({
   }
 
   // Paso 2 — Hora y lugar
-  const [date, setDate] = useState<string>(() => {
+  // Para planes recurrentes (3 días, semanal, VIP) el dueño elige cada día y hora individualmente
+  const walksCount = Math.max(1, initialPlan.walksCount ?? 1)
+  const initialDate = (() => {
     const d = new Date()
     d.setDate(d.getDate() + 1)
     return d.toISOString().split("T")[0]
-  })
-  const [startHour, setStartHour] = useState("09:00")
+  })()
+  const [slots, setSlots] = useState<{ date: string; startHour: string }[]>(
+    Array.from({ length: walksCount }, () => ({ date: initialDate, startHour: "09:00" })),
+  )
+  const updateSlot = (i: number, patch: Partial<{ date: string; startHour: string }>) => {
+    setSlots((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)))
+  }
+  // Compatibilidad legacy (resumen final usa esto)
+  const date = slots[0]?.date ?? initialDate
+  const startHour = slots[0]?.startHour ?? "09:00"
   const [zone, setZone] = useState("")
   const [zoneOther, setZoneOther] = useState("")
   const [pickupAddress, setPickupAddress] = useState("")
@@ -113,7 +123,8 @@ export function ReservarClient({
   const price = priceForDogs(initialPlan, dogsCount)
 
   const canAdvance1 = selectedDogIds.length > 0
-  const canAdvance2 = date && startHour && zone && pickupAddress.trim().length > 0 && (zone !== "Otra" || zoneOther.trim().length > 0)
+  const slotsValid = slots.every((s) => s.date && s.startHour)
+  const canAdvance2 = slotsValid && zone && pickupAddress.trim().length > 0 && (zone !== "Otra" || zoneOther.trim().length > 0)
   const effectiveZone = zone === "Otra" ? zoneOther : zone
 
   const goNext = () => {
@@ -135,10 +146,6 @@ export function ReservarClient({
     }
     setLoading(true)
     try {
-      const scheduledAt = new Date(`${date}T${startHour}:00`).toISOString()
-      // El paseo dura ~1 hora por defecto. El paseador puede cambiar duración después.
-      const scheduledUntil = new Date(new Date(scheduledAt).getTime() + 60 * 60 * 1000).toISOString()
-
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error("Tu sesión expiró. Vuelve a iniciar sesión.")
 
@@ -150,22 +157,24 @@ export function ReservarClient({
       const notes = tripNotes ? `${baseNotes}. Notas del paseo: ${tripNotes}` : baseNotes
       const firstDogId = selectedDogs[0]?.id ?? null
 
-      // Genera N paseos según el plan (1, 3 o 5), en días consecutivos
-      // a partir de la fecha elegida. Cada paseo a la misma hora del día.
+      // Genera N paseos según el plan (1, 3, 5 o 7), uno por cada slot seleccionado
+      // (el dueño elige cada día y hora individualmente, no son consecutivos automáticos)
       // El precio total se asigna al PRIMER paseo (los demás $0) para no contabilizar dos veces.
-      const walks = Math.max(1, initialPlan.walksCount ?? 1)
-      const startDate = new Date(scheduledAt)
+      const walks = slots.length
       const packageId = walks > 1 ? crypto.randomUUID() : null
-      const rows = []
-      for (let i = 0; i < walks; i++) {
-        const at = new Date(startDate)
-        at.setDate(at.getDate() + i)
+      // Ordenamos los slots por fecha para que index 1 sea el primer día cronológicamente
+      const ordered = [...slots].sort((a, b) => {
+        const ta = new Date(`${a.date}T${a.startHour}:00`).getTime()
+        const tb = new Date(`${b.date}T${b.startHour}:00`).getTime()
+        return ta - tb
+      })
+      const rows = ordered.map((slot, i) => {
+        const at = new Date(`${slot.date}T${slot.startHour}:00`)
         const until = new Date(at.getTime() + 60 * 60 * 1000)
-        rows.push({
+        return {
           user_id: user.id,
           plan_name: initialPlan.name,
           dogs_count: dogsCount,
-          // Solo el primero lleva el precio total; los demás $0 (parte del mismo paquete)
           price_mxn: i === 0 ? price : 0,
           status: "buscando_paseador",
           notes: i === 0 ? notes : `${notes}${notes ? " · " : ""}Paseo ${i + 1} de ${walks} del paquete "${initialPlan.name}"`,
@@ -177,15 +186,14 @@ export function ReservarClient({
           dog_size: dogSizes,
           dog_notes: dogSpecialNeeds,
           dog_id: firstDogId,
-          // Las reservas nacen pendientes de aprobación admin
           visibility: "pending_admin",
           payment_status: "pendiente",
           responsibility_accepted: true,
           package_id: packageId,
           package_index: walks > 1 ? i + 1 : null,
           package_total: walks > 1 ? walks : null,
-        })
-      }
+        }
+      })
 
       const { data, error: insErr } = await supabase
         .from("reservations")
@@ -416,53 +424,60 @@ export function ReservarClient({
                 </header>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Fecha *</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full justify-start rounded-md text-left font-normal",
-                            !date && "text-muted-foreground",
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {date
-                            ? new Date(date + "T00:00:00").toLocaleDateString("es-MX", {
-                                weekday: "long", day: "numeric", month: "long",
-                              })
-                            : "Selecciona una fecha"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={date ? new Date(date + "T00:00:00") : undefined}
-                          onSelect={(d) => {
-                            if (d) {
-                              // Guardar como YYYY-MM-DD sin zona
-                              const y = d.getFullYear()
-                              const m = String(d.getMonth() + 1).padStart(2, "0")
-                              const day = String(d.getDate()).padStart(2, "0")
-                              setDate(`${y}-${m}-${day}`)
-                            }
-                          }}
-                          disabled={(d) => d < new Date(new Date().setHours(0, 0, 0, 0))}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="startHour">Hora de recogida *</Label>
-                    <Select value={startHour} onValueChange={setStartHour}>
-                      <SelectTrigger id="startHour"><SelectValue placeholder="¿A qué hora?" /></SelectTrigger>
-                      <SelectContent>
-                        {HOURS.map((h) => (<SelectItem key={h.value} value={h.value}>{h.label}</SelectItem>))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {slots.map((slot, idx) => (
+                    <Fragment key={idx}>
+                      <div className="space-y-2">
+                        <Label>
+                          {walksCount > 1 ? `Día ${idx + 1} *` : "Fecha *"}
+                        </Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              className={cn(
+                                "w-full justify-start rounded-md text-left font-normal",
+                                !slot.date && "text-muted-foreground",
+                              )}
+                            >
+                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              {slot.date
+                                ? new Date(slot.date + "T00:00:00").toLocaleDateString("es-MX", {
+                                    weekday: "long", day: "numeric", month: "long",
+                                  })
+                                : "Selecciona una fecha"}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={slot.date ? new Date(slot.date + "T00:00:00") : undefined}
+                              onSelect={(d) => {
+                                if (d) {
+                                  const y = d.getFullYear()
+                                  const m = String(d.getMonth() + 1).padStart(2, "0")
+                                  const day = String(d.getDate()).padStart(2, "0")
+                                  updateSlot(idx, { date: `${y}-${m}-${day}` })
+                                }
+                              }}
+                              disabled={(d) => d < new Date(new Date().setHours(0, 0, 0, 0))}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`startHour-${idx}`}>
+                          {walksCount > 1 ? `Hora del día ${idx + 1} *` : "Hora de recogida *"}
+                        </Label>
+                        <Select value={slot.startHour} onValueChange={(v) => updateSlot(idx, { startHour: v })}>
+                          <SelectTrigger id={`startHour-${idx}`}><SelectValue placeholder="¿A qué hora?" /></SelectTrigger>
+                          <SelectContent>
+                            {HOURS.map((h) => (<SelectItem key={h.value} value={h.value}>{h.label}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </Fragment>
+                  ))}
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="zone">Zona *</Label>
                     <Select value={zone} onValueChange={setZone}>
@@ -532,12 +547,20 @@ export function ReservarClient({
                   </li>
                   <li className="flex items-start gap-3">
                     <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                    <span>
-                      {new Date(date).toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" })} · recogemos a las {startHour}
-                      {(initialPlan.walksCount ?? 1) > 1 && (
-                        <> · <b>{initialPlan.walksCount} paseos</b> en días consecutivos</>
-                      )}
-                    </span>
+                    {walksCount === 1 ? (
+                      <span>
+                        {new Date(slots[0].date).toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" })} · recogemos a las {slots[0].startHour}
+                      </span>
+                    ) : (
+                      <div className="space-y-0.5">
+                        <p><b>{walksCount} paseos</b> en las fechas que elegiste:</p>
+                        {[...slots].sort((a, b) => new Date(`${a.date}T${a.startHour}`).getTime() - new Date(`${b.date}T${b.startHour}`).getTime()).map((s, i) => (
+                          <p key={i}>
+                            · {new Date(s.date).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })} a las {s.startHour}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </li>
                   <li className="flex items-start gap-3">
                     <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
