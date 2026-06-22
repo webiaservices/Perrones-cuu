@@ -158,6 +158,24 @@ export function AdminPanel({
     scheduled_at: "",
     notes: "",
   })
+  // Slots para planes recurrentes (admin crea N paseos en N fechas/horas distintas)
+  const planWalksMap: Record<string, number> = {
+    "Paseo de 1 día": 1, "Paseo de 3 días": 3, "Paseo semanal": 5, "VIP 7 días": 7,
+  }
+  const [newSlots, setNewSlots] = useState<{ date: string; startHour: string }[]>([
+    { date: "", startHour: "09:00" },
+  ])
+  const ensureSlotsLength = (planName: string) => {
+    const n = planWalksMap[planName] ?? 1
+    setNewSlots((prev) => {
+      if (prev.length === n) return prev
+      const base = prev[0]?.date ?? ""
+      return Array.from({ length: n }, (_, i) => prev[i] ?? { date: base, startHour: "09:00" })
+    })
+  }
+  const updateNewSlot = (i: number, patch: Partial<{ date: string; startHour: string }>) => {
+    setNewSlots((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)))
+  }
 
   const allOwners = useMemo(() => users.filter((u) => u.role === "dueno" && !u.banned), [users])
 
@@ -166,69 +184,86 @@ export function AdminPanel({
     if (clientMode === "manual" && !newPaseo.manual_client_name.trim()) { alert("Nombre del cliente"); return }
     if (!newPaseo.dog_name) { alert("Nombre del perro"); return }
     if (!newPaseo.zone) { alert("Zona"); return }
-    if (!newPaseo.scheduled_at) { alert("Fecha y hora"); return }
+    if (!newSlots.every((s) => s.date && s.startHour)) { alert("Llena fecha y hora de cada día"); return }
 
     setCreating(true)
     const supabase = createClient()
-    const scheduled_at = new Date(newPaseo.scheduled_at).toISOString()
-    const scheduled_until = new Date(new Date(scheduled_at).getTime() + 60 * 60 * 1000).toISOString()
 
     // Para cliente manual: usa el admin como user_id pero guarda los datos manuales
     const { data: { user: currentAdmin } } = await supabase.auth.getUser()
     const userId = clientMode === "registered" ? newPaseo.user_id : currentAdmin?.id
     if (!userId) { setCreating(false); alert("Error: admin no identificado"); return }
 
-    // Si admin escoge paseador → queda confirmado y público
-    // Si no → queda pending_admin para que el admin decida después
     const assignedNow = newPaseo.walker_id !== ""
-    const { data, error } = await supabase
-      .from("reservations")
-      .insert({
+    const walks = newSlots.length
+    const packageId = walks > 1 ? crypto.randomUUID() : null
+
+    // Ordena slots cronológicamente
+    const ordered = [...newSlots].sort((a, b) => {
+      const ta = new Date(`${a.date}T${a.startHour}:00`).getTime()
+      const tb = new Date(`${b.date}T${b.startHour}:00`).getTime()
+      return ta - tb
+    })
+
+    const rows = ordered.map((slot, i) => {
+      const at = new Date(`${slot.date}T${slot.startHour}:00`)
+      const until = new Date(at.getTime() + 60 * 60 * 1000)
+      return {
         user_id: userId,
         manual_client_name: clientMode === "manual" ? newPaseo.manual_client_name : null,
         manual_client_phone: clientMode === "manual" ? newPaseo.manual_client_phone : null,
         walker_id: assignedNow ? newPaseo.walker_id : null,
         plan_name: newPaseo.plan_name,
         dogs_count: newPaseo.dogs_count,
-        price_mxn: newPaseo.price_mxn,
+        // Solo el primero lleva el precio total
+        price_mxn: i === 0 ? newPaseo.price_mxn : 0,
         status: assignedNow ? "confirmada" : "buscando_paseador",
         visibility: assignedNow ? "public" : "pending_admin",
-        notes: newPaseo.notes || (clientMode === "manual" ? "Cliente manual (sin registro)" : "Creado por admin"),
-        scheduled_at,
-        scheduled_until,
+        notes: i === 0
+          ? (newPaseo.notes || (clientMode === "manual" ? "Cliente manual (sin registro)" : "Creado por admin"))
+          : `Paseo ${i + 1} de ${walks} del paquete "${newPaseo.plan_name}"`,
+        scheduled_at: at.toISOString(),
+        scheduled_until: until.toISOString(),
         zone: newPaseo.zone,
         pickup_address: newPaseo.pickup_address,
         dog_name: newPaseo.dog_name,
         dog_size: newPaseo.dog_size,
-      })
+        package_id: packageId,
+        package_index: walks > 1 ? i + 1 : null,
+        package_total: walks > 1 ? walks : null,
+      }
+    })
+
+    const { data, error } = await supabase
+      .from("reservations")
+      .insert(rows)
       .select()
-      .single()
     setCreating(false)
     if (error) { alert(`Error: ${error.message}`); return }
+    const firstRow = (data as AdminReservation[])[0]
 
-    setReservations((prev) => [data as AdminReservation, ...prev])
+    setReservations((prev) => [...(data as AdminReservation[]), ...prev])
     setNewPaseo({
       user_id: "", manual_client_name: "", manual_client_phone: "", walker_id: "", plan_name: "Paseo de 1 día", dogs_count: 1, price_mxn: 110,
       zone: "", pickup_address: "", dog_name: "", dog_size: "mediano", scheduled_at: "", notes: "",
     })
+    setNewSlots([{ date: "", startHour: "09:00" }])
     setClientMode("registered")
     setShowCreateModal(false)
 
     // Solo notifica por correo si el cliente está registrado (los manuales no tienen email)
-    if (clientMode === "registered") {
+    if (clientMode === "registered" && firstRow) {
       if (assignedNow) {
-        // Notifica al cliente que ya tiene paseador asignado
         fetch("/api/notify-cliente", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reservationId: data.id, kind: "asignada" }),
+          body: JSON.stringify({ reservationId: firstRow.id, kind: "asignada" }),
         }).catch(() => {})
       } else {
-        // Confirmación al cliente de que se recibió la reserva (sin paseador todavía)
         fetch("/api/notify-cliente", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reservationId: data.id, kind: "reservada" }),
+          body: JSON.stringify({ reservationId: firstRow.id, kind: "reservada" }),
         }).catch(() => {})
       }
     }
@@ -374,6 +409,19 @@ export function AdminPanel({
   }, [weekReservations])
 
   // Tabla filtrada
+  // Mapa: package_id → todas las fechas de ese paquete (ordenadas)
+  const packageDates = useMemo(() => {
+    const m: Record<string, Date[]> = {}
+    reservations.forEach((r) => {
+      if (r.package_id && r.scheduled_at) {
+        if (!m[r.package_id]) m[r.package_id] = []
+        m[r.package_id].push(new Date(r.scheduled_at))
+      }
+    })
+    Object.values(m).forEach((arr) => arr.sort((a, b) => a.getTime() - b.getTime()))
+    return m
+  }, [reservations])
+
   const filtered = useMemo(() => {
     // Agrupar paseos recurrentes: solo mostrar el primero de cada paquete
     let arr = reservations.filter((r) => !r.package_id || (r.package_index ?? 1) === 1)
@@ -657,15 +705,25 @@ export function AdminPanel({
                       <tr key={r.id} className={`border-b border-border/50 align-top ${canMakePublic ? "bg-amber-50" : ""}`}>
                         <td className="py-3 pr-4 font-semibold">
                           {r.scheduled_at ? (
-                            <>
-                              {new Date(r.scheduled_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
-                              <div className="text-xs text-muted-foreground">{fmtTime(r.scheduled_at)}</div>
-                              {r.package_total && r.package_total > 1 && (
+                            r.package_id && packageDates[r.package_id]?.length > 1 ? (
+                              <>
+                                <div className="text-xs leading-tight">
+                                  {packageDates[r.package_id].map((d, di) => (
+                                    <div key={di}>
+                                      {d.toLocaleDateString("es-MX", { day: "numeric", month: "short" })} · {d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                                    </div>
+                                  ))}
+                                </div>
                                 <span className="mt-1 inline-block rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary">
-                                  Paquete · {r.package_total} paseos
+                                  Paquete · {packageDates[r.package_id].length} paseos
                                 </span>
-                              )}
-                            </>
+                              </>
+                            ) : (
+                              <>
+                                {new Date(r.scheduled_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
+                                <div className="text-xs text-muted-foreground">{fmtTime(r.scheduled_at)}</div>
+                              </>
+                            )
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
@@ -979,14 +1037,17 @@ export function AdminPanel({
                 <select
                   value={newPaseo.plan_name}
                   onChange={(e) => {
-                    const price = e.target.value === "Paseo semanal" ? 450 : e.target.value === "Paseo de 3 días" ? 300 : 110
-                    setNewPaseo({ ...newPaseo, plan_name: e.target.value, price_mxn: price })
+                    const v = e.target.value
+                    const price = v === "VIP 7 días" ? 630 : v === "Paseo semanal" ? 450 : v === "Paseo de 3 días" ? 300 : 110
+                    setNewPaseo({ ...newPaseo, plan_name: v, price_mxn: price })
+                    ensureSlotsLength(v)
                   }}
                   className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 >
                   <option value="Paseo de 1 día">Paseo de 1 día — $110</option>
                   <option value="Paseo de 3 días">Paseo de 3 días — $300</option>
                   <option value="Paseo semanal">Paseo semanal — $450</option>
+                  <option value="VIP 7 días">VIP 7 días — $630</option>
                 </select>
               </div>
               <div>
@@ -1005,9 +1066,32 @@ export function AdminPanel({
                   <option value="grande">Grande</option>
                 </select>
               </div>
-              <div>
-                <label className="text-sm font-semibold">Fecha y hora</label>
-                <Input type="datetime-local" value={newPaseo.scheduled_at} onChange={(e) => setNewPaseo({ ...newPaseo, scheduled_at: e.target.value })} />
+              <div className="md:col-span-2 space-y-3 rounded-2xl bg-secondary/30 p-3">
+                <p className="text-sm font-bold">
+                  {newSlots.length > 1 ? `${newSlots.length} días — escoge fecha y hora de cada uno` : "Fecha y hora"}
+                </p>
+                {newSlots.map((slot, i) => (
+                  <div key={i} className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        {newSlots.length > 1 ? `Día ${i + 1}` : "Fecha"}
+                      </label>
+                      <Input
+                        type="date"
+                        value={slot.date}
+                        onChange={(e) => updateNewSlot(i, { date: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground">Hora</label>
+                      <Input
+                        type="time"
+                        value={slot.startHour}
+                        onChange={(e) => updateNewSlot(i, { startHour: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
               <div>
                 <label className="text-sm font-semibold">Precio MXN</label>

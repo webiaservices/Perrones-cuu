@@ -158,6 +158,15 @@ export function PanelClient({
 
   // Agrupar paseos recurrentes: solo mostrar el primero de cada paquete
   const groupedReservations = reservations.filter((r) => !r.package_id || (r.package_index ?? 1) === 1)
+  // Mapa: package_id → todas las fechas (ordenadas) para mostrarlas todas
+  const packageDates: Record<string, Date[]> = {}
+  reservations.forEach((r) => {
+    if (r.package_id && r.scheduled_at) {
+      if (!packageDates[r.package_id]) packageDates[r.package_id] = []
+      packageDates[r.package_id].push(new Date(r.scheduled_at))
+    }
+  })
+  Object.values(packageDates).forEach((arr) => arr.sort((a, b) => a.getTime() - b.getTime()))
 
   // Para paseador: separar jales disponibles vs propios
   const availableJales = isWalker
@@ -284,11 +293,25 @@ export function PanelClient({
                             </span>
                           )}
                           {r.scheduled_at && (
-                            <span className="flex items-center gap-1.5">
-                              <CalendarDays className="h-4 w-4" />
-                              {fmtDate(r.scheduled_at)} · {fmtTime(r.scheduled_at)}
-                              {r.scheduled_until && `–${fmtTime(r.scheduled_until)}`}
-                            </span>
+                            r.package_id && packageDates[r.package_id]?.length > 1 ? (
+                              <div className="flex items-start gap-1.5">
+                                <CalendarDays className="mt-0.5 h-4 w-4 shrink-0" />
+                                <div>
+                                  <div className="font-bold">{packageDates[r.package_id].length} días:</div>
+                                  {packageDates[r.package_id].map((d, di) => (
+                                    <div key={di}>
+                                      · {d.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })} a las {d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="flex items-center gap-1.5">
+                                <CalendarDays className="h-4 w-4" />
+                                {fmtDate(r.scheduled_at)} · {fmtTime(r.scheduled_at)}
+                                {r.scheduled_until && `–${fmtTime(r.scheduled_until)}`}
+                              </span>
+                            )
                           )}
                           {r.zone && (
                             <span className="flex items-center gap-1.5">

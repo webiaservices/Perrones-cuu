@@ -207,6 +207,18 @@ export function WalkerPanel({
     () => reservations.filter((r) => !r.package_id || (r.package_index ?? 1) === 1),
     [reservations],
   )
+  // Mapa: package_id → todas las fechas (ordenadas) para mostrarlas todas
+  const packageDates = useMemo(() => {
+    const m: Record<string, Date[]> = {}
+    reservations.forEach((r) => {
+      if (r.package_id && r.scheduled_at) {
+        if (!m[r.package_id]) m[r.package_id] = []
+        m[r.package_id].push(new Date(r.scheduled_at))
+      }
+    })
+    Object.values(m).forEach((arr) => arr.sort((a, b) => a.getTime() - b.getTime()))
+    return m
+  }, [reservations])
   const myReservations = useMemo(
     () => groupedReservations.filter((r) => r.walker_id === userId),
     [groupedReservations, userId],
@@ -436,12 +448,26 @@ export function WalkerPanel({
                           </span>
                         )}
                         {r.scheduled_at && (
-                          <span className="flex items-center gap-1.5">
-                            <CalendarDays className="h-4 w-4" />
-                            {new Date(r.scheduled_at).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })} ·{" "}
-                            {new Date(r.scheduled_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
-                            {r.scheduled_until && `–${new Date(r.scheduled_until).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}`}
-                          </span>
+                          r.package_id && packageDates[r.package_id]?.length > 1 ? (
+                            <div className="flex items-start gap-1.5">
+                              <CalendarDays className="mt-0.5 h-4 w-4 shrink-0" />
+                              <div>
+                                <div className="font-bold text-foreground">{packageDates[r.package_id].length} días:</div>
+                                {packageDates[r.package_id].map((d, di) => (
+                                  <div key={di}>
+                                    · {d.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })} a las {d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="flex items-center gap-1.5">
+                              <CalendarDays className="h-4 w-4" />
+                              {new Date(r.scheduled_at).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })} ·{" "}
+                              {new Date(r.scheduled_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                              {r.scheduled_until && `–${new Date(r.scheduled_until).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}`}
+                            </span>
+                          )
                         )}
                         {r.zone && (
                           <span className="flex items-center gap-1.5">
