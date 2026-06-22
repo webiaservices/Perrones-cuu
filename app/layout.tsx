@@ -21,6 +21,23 @@ export const metadata: Metadata = {
   description:
     "Te enlazamos con paseadores certificados en Ciudad Chihuahua. Agenda el paseo de tu perro a un mensaje de distancia.",
   generator: "v0.app",
+  manifest: "/manifest.json",
+  themeColor: "#3DCABD",
+  appleWebApp: {
+    capable: true,
+    title: "Perrones Cuu",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: [
+      { url: "/perrones-logo.png", type: "image/png" },
+    ],
+    apple: [
+      { url: "/perrones-logo.png", sizes: "180x180", type: "image/png" },
+      { url: "/apple-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+    shortcut: "/perrones-logo.png",
+  },
 }
 
 export default function RootLayout({

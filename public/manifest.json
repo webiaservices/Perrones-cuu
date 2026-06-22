@@ -1,0 +1,36 @@
+{
+  "name": "Perrones Cuu",
+  "short_name": "Perrones",
+  "description": "Paseadores certificados en Ciudad Chihuahua",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6fbfb",
+  "theme_color": "#3DCABD",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/perrones-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/perrones-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/perrones-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/perrones-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
