@@ -400,10 +400,11 @@ export function AdminPanel({
     const totalMin = active.reduce((sum, r) => sum + durationMin(r.scheduled_at, r.scheduled_until), 0)
     const totalH = Math.floor(totalMin / 60)
     const totalRem = totalMin % 60
-    const totalIngresos = active.reduce((sum, r) => sum + Number(r.price_mxn), 0)
+    // Solo el 30% es ingreso del admin (el otro 70% va al paseador)
+    const totalIngresos = active.reduce((sum, r) => sum + Math.round(Number(r.price_mxn) * 0.3), 0)
     const ingresosCompletados = active
       .filter((r) => r.status === "completada")
-      .reduce((sum, r) => sum + Number(r.price_mxn), 0)
+      .reduce((sum, r) => sum + Math.round(Number(r.price_mxn) * 0.3), 0)
     const tasa = active.length > 0 ? Math.round((completados / active.length) * 100) : null
     return { agendados, completados, totalMin, totalH, totalRem, totalIngresos, ingresosCompletados, tasa }
   }, [weekReservations])
@@ -596,9 +597,9 @@ export function AdminPanel({
             />
             <StatCard
               icon={<DollarSign className="h-5 w-5 text-primary" />}
-              title="Ingresos esperados"
+              title="Mi ingreso (30%)"
               value={`$${stats.totalIngresos.toLocaleString()}`}
-              sub={`$${stats.ingresosCompletados.toLocaleString()} ya completados`}
+              sub={`$${stats.ingresosCompletados.toLocaleString()} ya completados · solo tu parte`}
             />
             <StatCard
               icon={<CheckCircle2 className="h-5 w-5 text-primary" />}
@@ -683,7 +684,8 @@ export function AdminPanel({
                     <th className="pb-3 pr-4">Paseador</th>
                     <th className="pb-3 pr-4">Zona</th>
                     <th className="pb-3 pr-4">Duración</th>
-                    <th className="pb-3 pr-4">Precio</th>
+                    <th className="pb-3 pr-4">Precio total</th>
+                    <th className="pb-3 pr-4">Reparto</th>
                     <th className="pb-3 pr-4">Estado</th>
                     <th className="pb-3 pr-4">Visibilidad</th>
                     <th className="pb-3">Pago</th>
@@ -692,7 +694,7 @@ export function AdminPanel({
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-8 text-center text-muted-foreground">
+                      <td colSpan={11} className="py-8 text-center text-muted-foreground">
                         Sin reservas con esos filtros.
                       </td>
                     </tr>
@@ -758,6 +760,10 @@ export function AdminPanel({
                         <td className="py-3 pr-4">{r.zone ?? "—"}</td>
                         <td className="py-3 pr-4">{durationMin(r.scheduled_at, r.scheduled_until)} min</td>
                         <td className="py-3 pr-4 font-bold">${Number(r.price_mxn).toLocaleString()}</td>
+                        <td className="py-3 pr-4 text-xs leading-tight">
+                          <div className="font-bold text-primary">Admin: ${Math.round(Number(r.price_mxn) * 0.3).toLocaleString()}</div>
+                          <div className="text-muted-foreground">Paseador: ${Math.round(Number(r.price_mxn) * 0.7).toLocaleString()}</div>
+                        </td>
                         <td className="py-3 pr-4">
                           <select
                             value={r.status}
