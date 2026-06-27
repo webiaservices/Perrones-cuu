@@ -109,7 +109,7 @@ export function BuscandoClient({ reservation: initial }: { reservation: Reservat
                   Estamos enlazándote con un paseador…
                 </h1>
                 <p className="mt-3 text-pretty leading-relaxed text-muted-foreground">
-                  En un momento te conectamos con un paseador designado de tu zona. Esto suele tardar pocos minutos.
+                  Una disculpa pero esto puede tardar varios días. Te pedimos de favor que reserves con tiempo de anticipación.
                 </p>
                 <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-secondary px-4 py-2 text-sm font-bold">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -124,7 +124,7 @@ export function BuscandoClient({ reservation: initial }: { reservation: Reservat
                 </div>
 
                 <p className="mt-6 text-xs text-muted-foreground">
-                  Puedes salir de esta pantalla — te avisamos en tu panel cuando se confirme.
+                  Puedes salir de esta pantalla — te avisaremos por WhatsApp cuando se confirme tu paseo.
                 </p>
                 <div className="mt-4 flex justify-center">
                   <Button asChild variant="ghost" className="rounded-full">
