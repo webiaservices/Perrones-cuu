@@ -218,7 +218,7 @@ export function AdminPanel({
         // Solo el primero lleva el precio total
         price_mxn: i === 0 ? newPaseo.price_mxn : 0,
         status: assignedNow ? "confirmada" : "buscando_paseador",
-        visibility: assignedNow ? "public" : "pending_admin",
+        visibility: "public",
         notes: i === 0
           ? (newPaseo.notes || (clientMode === "manual" ? "Cliente manual (sin registro)" : "Creado por admin"))
           : `Paseo ${i + 1} de ${walks} del paquete "${newPaseo.plan_name}"`,

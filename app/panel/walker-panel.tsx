@@ -144,56 +144,22 @@ export function WalkerPanel({
 
   const acceptPaseo = async (id: string) => {
     setUpdating(id)
-    const supabase = createClient()
     const target = reservations.find((r) => r.id === id)
 
-    // 1. Revisa el estado actual del paseo
-    const { data: current } = await supabase
-      .from("reservations")
-      .select("id, walker_id, status, visibility")
-      .eq("id", id)
-      .single()
-
-    if (!current) {
-      setUpdating(null)
-      alert("Este paseo ya no existe.")
-      setReservations((prev) => prev.filter((r) => r.id !== id))
-      return
-    }
-    if (current.walker_id && current.walker_id !== userId) {
-      setUpdating(null)
-      alert("Otro paseador ya tomó este paseo.")
-      setReservations((prev) => prev.filter((r) => r.id !== id))
-      return
-    }
-    if (current.visibility !== "public") {
-      setUpdating(null)
-      alert("Este paseo aún no fue aprobado por el administrador. Espera un momento.")
-      return
-    }
-    if (current.status !== "buscando_paseador") {
-      setUpdating(null)
-      alert(`Este paseo ya no está disponible (estado: ${current.status}).`)
-      setReservations((prev) => prev.filter((r) => r.id !== id))
-      return
-    }
-
-    // 2. Hace el update: si es paquete, acepta todos los del paquete
-    const query = supabase
-      .from("reservations")
-      .update({ status: "confirmada", walker_id: userId })
-      .is("walker_id", null)
-    const { data, error } = target?.package_id
-      ? await query.eq("package_id", target.package_id).select("id")
-      : await query.eq("id", id).select("id").single()
+    // Usa endpoint server-side que bypasa RLS y da mensajes precisos
+    const res = await fetch("/api/accept-paseo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reservationId: id }),
+    })
+    const result = await res.json()
     setUpdating(null)
-    if (error) {
-      alert(`Error al aceptar: ${error.message}`)
-      return
-    }
-    if (!data || (Array.isArray(data) && data.length === 0)) {
-      alert("No se pudo aceptar. Recarga la página y vuelve a intentar.")
-      setReservations((prev) => prev.filter((r) => r.id !== id))
+
+    if (!res.ok) {
+      alert(result.error ?? "Error al aceptar el paseo")
+      if (res.status === 404 || res.status === 409) {
+        setReservations((prev) => prev.filter((r) => r.id !== id))
+      }
       return
     }
     setReservations((prev) =>
