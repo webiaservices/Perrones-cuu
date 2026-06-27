@@ -186,7 +186,7 @@ export function ReservarClient({
           dog_size: dogSizes,
           dog_notes: dogSpecialNeeds,
           dog_id: firstDogId,
-          visibility: "pending_admin",
+          visibility: "public",
           payment_status: "pendiente",
           responsibility_accepted: true,
           package_id: packageId,

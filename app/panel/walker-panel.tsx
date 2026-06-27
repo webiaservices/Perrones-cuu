@@ -145,8 +145,40 @@ export function WalkerPanel({
   const acceptPaseo = async (id: string) => {
     setUpdating(id)
     const supabase = createClient()
-    // Si es paquete, acepta TODOS los paseos del paquete
     const target = reservations.find((r) => r.id === id)
+
+    // 1. Revisa el estado actual del paseo
+    const { data: current } = await supabase
+      .from("reservations")
+      .select("id, walker_id, status, visibility")
+      .eq("id", id)
+      .single()
+
+    if (!current) {
+      setUpdating(null)
+      alert("Este paseo ya no existe.")
+      setReservations((prev) => prev.filter((r) => r.id !== id))
+      return
+    }
+    if (current.walker_id && current.walker_id !== userId) {
+      setUpdating(null)
+      alert("Otro paseador ya tomó este paseo.")
+      setReservations((prev) => prev.filter((r) => r.id !== id))
+      return
+    }
+    if (current.visibility !== "public") {
+      setUpdating(null)
+      alert("Este paseo aún no fue aprobado por el administrador. Espera un momento.")
+      return
+    }
+    if (current.status !== "buscando_paseador") {
+      setUpdating(null)
+      alert(`Este paseo ya no está disponible (estado: ${current.status}).`)
+      setReservations((prev) => prev.filter((r) => r.id !== id))
+      return
+    }
+
+    // 2. Hace el update: si es paquete, acepta todos los del paquete
     const query = supabase
       .from("reservations")
       .update({ status: "confirmada", walker_id: userId })
@@ -155,8 +187,12 @@ export function WalkerPanel({
       ? await query.eq("package_id", target.package_id).select("id")
       : await query.eq("id", id).select("id").single()
     setUpdating(null)
-    if (error || !data) {
-      alert("Otro paseador ya tomó este paseo.")
+    if (error) {
+      alert(`Error al aceptar: ${error.message}`)
+      return
+    }
+    if (!data || (Array.isArray(data) && data.length === 0)) {
+      alert("No se pudo aceptar. Recarga la página y vuelve a intentar.")
       setReservations((prev) => prev.filter((r) => r.id !== id))
       return
     }
