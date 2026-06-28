@@ -16,7 +16,7 @@ export default async function PanelPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, role")
+    .select("full_name, role, commission_pct")
     .eq("id", user.id)
     .single()
 
@@ -60,6 +60,7 @@ export default async function PanelPage() {
         ownerMap={ownerMap}
         walkerMap={walkerMap}
         allUsers={allUsers ?? []}
+        initialAdminPct={(profile as { commission_pct?: number })?.commission_pct ?? 30}
       />
     )
   }

@@ -126,18 +126,35 @@ export function AdminPanel({
   ownerMap,
   walkerMap,
   allUsers = [],
+  initialAdminPct = 30,
 }: {
   fullName: string | null
   email: string
   reservations: AdminReservation[]
   ownerMap: Record<string, { name: string | null; phone: string | null }>
   walkerMap: Record<string, { name: string | null }>
+  initialAdminPct?: number
   allUsers?: AdminUser[]
 }) {
   const router = useRouter()
   const [reservations, setReservations] = useState(initial)
   const [users, setUsers] = useState(allUsers)
   const [view, setView] = useState<"tabla" | "calendario" | "usuarios">("tabla")
+  // Porcentaje editable de comisión del admin (resto es del paseador)
+  const [adminPct, setAdminPct] = useState(initialAdminPct)
+  const [savingPct, setSavingPct] = useState(false)
+  const adminShare = adminPct / 100
+  const walkerShare = 1 - adminShare
+  const saveAdminPct = async (v: number) => {
+    setAdminPct(v)
+    setSavingPct(true)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      await supabase.from("profiles").update({ commission_pct: v }).eq("id", user.id)
+    }
+    setSavingPct(false)
+  }
   const [updatingUser, setUpdatingUser] = useState<string | null>(null)
   const [assignFor, setAssignFor] = useState<AdminReservation | null>(null)
   const [assigning, setAssigning] = useState(false)
@@ -401,10 +418,10 @@ export function AdminPanel({
     const totalH = Math.floor(totalMin / 60)
     const totalRem = totalMin % 60
     // Solo el 30% es ingreso del admin (el otro 70% va al paseador)
-    const totalIngresos = active.reduce((sum, r) => sum + Math.round(Number(r.price_mxn) * 0.3), 0)
+    const totalIngresos = active.reduce((sum, r) => sum + Math.round(Number(r.price_mxn) * adminShare), 0)
     const ingresosCompletados = active
       .filter((r) => r.status === "completada")
-      .reduce((sum, r) => sum + Math.round(Number(r.price_mxn) * 0.3), 0)
+      .reduce((sum, r) => sum + Math.round(Number(r.price_mxn) * adminShare), 0)
     const tasa = active.length > 0 ? Math.round((completados / active.length) * 100) : null
     return { agendados, completados, totalMin, totalH, totalRem, totalIngresos, ingresosCompletados, tasa }
   }, [weekReservations])
@@ -597,7 +614,7 @@ export function AdminPanel({
             />
             <StatCard
               icon={<DollarSign className="h-5 w-5 text-primary" />}
-              title="Mi ingreso (30%)"
+              title={`Mi ingreso (${adminPct}%)`}
               value={`$${stats.totalIngresos.toLocaleString()}`}
               sub={`$${stats.ingresosCompletados.toLocaleString()} ya completados · solo tu parte`}
             />
@@ -610,8 +627,37 @@ export function AdminPanel({
           </div>
         </section>
 
+        {/* Configuración de comisión */}
+        <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-background p-4 shadow-sm">
+          <div>
+            <p className="text-sm font-bold">Reparto de ganancias</p>
+            <p className="text-xs text-muted-foreground">
+              Define cuánto te queda a ti del precio total. Cambia y guarda cuando quieras.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-bold">Mi %:</label>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={adminPct}
+              onChange={(e) => setAdminPct(Number(e.target.value))}
+              className="w-20"
+            />
+            <span className="text-xs font-bold text-muted-foreground">% · Paseador: {100 - adminPct}%</span>
+            <button
+              onClick={() => saveAdminPct(adminPct)}
+              disabled={savingPct}
+              className="rounded-full bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {savingPct ? "Guardando…" : "Guardar"}
+            </button>
+          </div>
+        </div>
+
         {/* Toggle tabla / calendario / usuarios */}
-        <div className="mt-8 flex flex-wrap items-center gap-2 rounded-full bg-background p-1.5 shadow-sm w-fit">
+        <div className="mt-6 flex flex-wrap items-center gap-2 rounded-full bg-background p-1.5 shadow-sm w-fit">
           <button
             onClick={() => setView("tabla")}
             className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-all ${
@@ -761,8 +807,8 @@ export function AdminPanel({
                         <td className="py-3 pr-4">{durationMin(r.scheduled_at, r.scheduled_until)} min</td>
                         <td className="py-3 pr-4 font-bold">${Number(r.price_mxn).toLocaleString()}</td>
                         <td className="py-3 pr-4 text-xs leading-tight">
-                          <div className="font-bold text-primary">Admin: ${Math.round(Number(r.price_mxn) * 0.3).toLocaleString()}</div>
-                          <div className="text-muted-foreground">Paseador: ${Math.round(Number(r.price_mxn) * 0.7).toLocaleString()}</div>
+                          <div className="font-bold text-primary">Admin ({adminPct}%): ${Math.round(Number(r.price_mxn) * adminShare).toLocaleString()}</div>
+                          <div className="text-muted-foreground">Paseador ({100 - adminPct}%): ${Math.round(Number(r.price_mxn) * walkerShare).toLocaleString()}</div>
                         </td>
                         <td className="py-3 pr-4">
                           <select
