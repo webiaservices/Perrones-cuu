@@ -215,6 +215,13 @@ export function ReservarClient({
         }).catch((err) => console.warn("Notify paseadores failed:", err))
       })
 
+      // Avisa al admin que hay un paseo nuevo (solo del primer paseo del paquete)
+      fetch("/api/notify-admin-nuevo-paseo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: firstId }),
+      }).catch((err) => console.warn("Notify admin failed:", err))
+
       // Confirmación al cliente de que la reserva quedó registrada (un solo correo, el primero)
       fetch("/api/notify-cliente", {
         method: "POST",
