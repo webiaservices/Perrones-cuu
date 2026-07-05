@@ -284,6 +284,22 @@ export function AdminPanel({
         }).catch(() => {})
       }
     }
+
+    // Notifica al admin (a si mismo si es admin creando) con detalles del paseo
+    if (firstRow) {
+      fetch("/api/notify-admin-nuevo-paseo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: firstRow.id }),
+      }).catch(() => {})
+
+      // Notifica a los paseadores de la zona
+      fetch("/api/notify-paseadores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: firstRow.id }),
+      }).catch(() => {})
+    }
   }
 
   const [showCreateModal, setShowCreateModal] = useState(false)
