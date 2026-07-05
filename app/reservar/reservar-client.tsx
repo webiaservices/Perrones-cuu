@@ -431,24 +431,80 @@ export function ReservarClient({
                 </header>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  {slots.map((slot, idx) => (
-                    <Fragment key={idx}>
+                  {walksCount > 1 ? (
+                    <div className="space-y-3 md:col-span-2">
+                      <Label>
+                        Elige {walksCount} días de paseo *
+                      </Label>
+                      <div className="rounded-2xl border border-border p-3">
+                        <Calendar
+                          mode="multiple"
+                          selected={slots.filter((s) => s.date).map((s) => new Date(s.date + "T00:00:00"))}
+                          onSelect={(days) => {
+                            const selectedDays = (days ?? []).slice(0, walksCount)
+                            // Ordenar cronológicamente
+                            const sorted = [...selectedDays].sort((a, b) => a.getTime() - b.getTime())
+                            const newSlots = sorted.map((d, i) => {
+                              const y = d.getFullYear()
+                              const m = String(d.getMonth() + 1).padStart(2, "0")
+                              const day = String(d.getDate()).padStart(2, "0")
+                              return { date: `${y}-${m}-${day}`, startHour: slots[i]?.startHour ?? "09:00" }
+                            })
+                            // Rellenar hasta walksCount
+                            while (newSlots.length < walksCount) {
+                              newSlots.push({ date: "", startHour: "09:00" })
+                            }
+                            setSlots(newSlots)
+                          }}
+                          disabled={(d) => d < new Date(new Date().setHours(0, 0, 0, 0))}
+                          max={walksCount}
+                          initialFocus
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Los días que elijas quedarán marcados. Puedes ver la hora de cada día abajo.
+                      </p>
+                      {slots.filter((s) => s.date).length > 0 && (
+                        <div className="space-y-2">
+                          {slots.filter((s) => s.date).map((slot, idx) => (
+                            <div key={idx} className="flex items-center gap-3 rounded-xl bg-secondary/30 p-3">
+                              <div className="flex-1 text-sm font-semibold">
+                                {new Date(slot.date + "T00:00:00").toLocaleDateString("es-MX", {
+                                  weekday: "long", day: "numeric", month: "long",
+                                })}
+                              </div>
+                              <div className="min-w-32">
+                                <Select value={slot.startHour} onValueChange={(v) => {
+                                  const realIdx = slots.findIndex((s) => s.date === slot.date)
+                                  updateSlot(realIdx, { startHour: v })
+                                }}>
+                                  <SelectTrigger><SelectValue placeholder="Hora" /></SelectTrigger>
+                                  <SelectContent>
+                                    {HOURS.map((h) => (<SelectItem key={h.value} value={h.value}>{h.label}</SelectItem>))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <>
                       <div className="space-y-2">
-                        <Label>
-                          {walksCount > 1 ? `Día ${idx + 1} *` : "Fecha *"}
-                        </Label>
+                        <Label>Fecha *</Label>
                         <Popover>
                           <PopoverTrigger asChild>
                             <Button
                               variant="outline"
                               className={cn(
                                 "w-full justify-start rounded-md text-left font-normal",
-                                !slot.date && "text-muted-foreground",
+                                !slots[0]?.date && "text-muted-foreground",
                               )}
                             >
                               <CalendarIcon className="mr-2 h-4 w-4" />
-                              {slot.date
-                                ? new Date(slot.date + "T00:00:00").toLocaleDateString("es-MX", {
+                              {slots[0]?.date
+                                ? new Date(slots[0].date + "T00:00:00").toLocaleDateString("es-MX", {
                                     weekday: "long", day: "numeric", month: "long",
                                   })
                                 : "Selecciona una fecha"}
@@ -457,13 +513,13 @@ export function ReservarClient({
                           <PopoverContent className="w-auto p-0" align="start">
                             <Calendar
                               mode="single"
-                              selected={slot.date ? new Date(slot.date + "T00:00:00") : undefined}
+                              selected={slots[0]?.date ? new Date(slots[0].date + "T00:00:00") : undefined}
                               onSelect={(d) => {
                                 if (d) {
                                   const y = d.getFullYear()
                                   const m = String(d.getMonth() + 1).padStart(2, "0")
                                   const day = String(d.getDate()).padStart(2, "0")
-                                  updateSlot(idx, { date: `${y}-${m}-${day}` })
+                                  updateSlot(0, { date: `${y}-${m}-${day}` })
                                 }
                               }}
                               disabled={(d) => d < new Date(new Date().setHours(0, 0, 0, 0))}
@@ -473,18 +529,16 @@ export function ReservarClient({
                         </Popover>
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor={`startHour-${idx}`}>
-                          {walksCount > 1 ? `Hora del día ${idx + 1} *` : "Hora de recogida *"}
-                        </Label>
-                        <Select value={slot.startHour} onValueChange={(v) => updateSlot(idx, { startHour: v })}>
-                          <SelectTrigger id={`startHour-${idx}`}><SelectValue placeholder="¿A qué hora?" /></SelectTrigger>
+                        <Label htmlFor="startHour-0">Hora de recogida *</Label>
+                        <Select value={slots[0]?.startHour ?? "09:00"} onValueChange={(v) => updateSlot(0, { startHour: v })}>
+                          <SelectTrigger id="startHour-0"><SelectValue placeholder="¿A qué hora?" /></SelectTrigger>
                           <SelectContent>
                             {HOURS.map((h) => (<SelectItem key={h.value} value={h.value}>{h.label}</SelectItem>))}
                           </SelectContent>
                         </Select>
                       </div>
-                    </Fragment>
-                  ))}
+                    </>
+                  )}
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="zone">Zona *</Label>
                     <Select value={zone} onValueChange={setZone}>
