@@ -434,10 +434,12 @@ export function AdminPanel({
     const totalH = Math.floor(totalMin / 60)
     const totalRem = totalMin % 60
     // Solo el 30% es ingreso del admin (el otro 70% va al paseador)
-    const totalIngresos = active.reduce((sum, r) => sum + adminSharePerPaseo(Number(r.price_mxn)), 0)
-    const ingresosCompletados = active
+    // Solo cuenta el primero de cada paquete para no duplicar ingreso
+    const uniqueForIncome = active.filter((r) => !r.package_id || (r.package_index ?? 1) === 1)
+    const totalIngresos = uniqueForIncome.reduce((sum, r) => sum + adminSharePerPaseo(effectivePrice(r)), 0)
+    const ingresosCompletados = uniqueForIncome
       .filter((r) => r.status === "completada")
-      .reduce((sum, r) => sum + adminSharePerPaseo(Number(r.price_mxn)), 0)
+      .reduce((sum, r) => sum + adminSharePerPaseo(effectivePrice(r)), 0)
     const tasa = active.length > 0 ? Math.round((completados / active.length) * 100) : null
     return { agendados, completados, totalMin, totalH, totalRem, totalIngresos, ingresosCompletados, tasa }
   }, [weekReservations])
@@ -455,6 +457,21 @@ export function AdminPanel({
     Object.values(m).forEach((arr) => arr.sort((a, b) => a.getTime() - b.getTime()))
     return m
   }, [reservations])
+
+  // Precio total por paquete (suma price_mxn de todos los paseos del paquete)
+  const packagePrices = useMemo(() => {
+    const m: Record<string, number> = {}
+    reservations.forEach((r) => {
+      if (r.package_id) {
+        m[r.package_id] = (m[r.package_id] ?? 0) + Number(r.price_mxn || 0)
+      }
+    })
+    return m
+  }, [reservations])
+
+  // Precio efectivo de una fila (si es paquete, el total; si no, el precio individual)
+  const effectivePrice = (r: AdminReservation) =>
+    r.package_id ? (packagePrices[r.package_id] ?? Number(r.price_mxn || 0)) : Number(r.price_mxn || 0)
 
   const filtered = useMemo(() => {
     // Agrupar paseos recurrentes: solo mostrar el primero de cada paquete
@@ -822,10 +839,10 @@ export function AdminPanel({
                         </td>
                         <td className="py-3 pr-4">{r.zone ?? "—"}</td>
                         <td className="py-3 pr-4">{durationMin(r.scheduled_at, r.scheduled_until)} min</td>
-                        <td className="py-3 pr-4 font-bold">${Number(r.price_mxn).toLocaleString()}</td>
+                        <td className="py-3 pr-4 font-bold">${effectivePrice(r).toLocaleString()}</td>
                         <td className="py-3 pr-4 text-xs leading-tight">
-                          <div className="font-bold text-primary">Admin: ${adminSharePerPaseo(Number(r.price_mxn)).toLocaleString()}</div>
-                          <div className="text-muted-foreground">Paseador: ${walkerSharePerPaseo(Number(r.price_mxn)).toLocaleString()}</div>
+                          <div className="font-bold text-primary">Admin: ${adminSharePerPaseo(effectivePrice(r)).toLocaleString()}</div>
+                          <div className="text-muted-foreground">Paseador: ${walkerSharePerPaseo(effectivePrice(r)).toLocaleString()}</div>
                         </td>
                         <td className="py-3 pr-4">
                           <select
