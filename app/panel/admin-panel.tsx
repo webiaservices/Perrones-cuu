@@ -49,6 +49,7 @@ export type AdminReservation = {
   package_id?: string | null
   package_index?: number | null
   package_total?: number | null
+  admin_fee_mxn?: number | null
 }
 
 const ALL_STATUSES = [
@@ -140,11 +141,12 @@ export function AdminPanel({
   const [reservations, setReservations] = useState(initial)
   const [users, setUsers] = useState(allUsers)
   const [view, setView] = useState<"tabla" | "calendario" | "usuarios">("tabla")
-  // Monto fijo (en pesos) que se queda el admin por cada paseo. El resto es del paseador.
+  // Monto fijo (en pesos) que se queda el admin por cada paseo (default global). El resto es del paseador.
   const [adminFee, setAdminFee] = useState(initialAdminPct)
   const [savingFee, setSavingFee] = useState(false)
-  const adminSharePerPaseo = (price: number) => Math.min(adminFee, price)
-  const walkerSharePerPaseo = (price: number) => Math.max(0, price - adminFee)
+  const feeForReservation = (r: AdminReservation) => r.admin_fee_mxn ?? adminFee
+  const adminSharePerPaseo = (price: number, feeOverride?: number) => Math.min(feeOverride ?? adminFee, price)
+  const walkerSharePerPaseo = (price: number, feeOverride?: number) => Math.max(0, price - (feeOverride ?? adminFee))
   const saveAdminFee = async (v: number) => {
     setAdminFee(v)
     setSavingFee(true)
@@ -463,10 +465,16 @@ export function AdminPanel({
     const totalRem = totalMin % 60
     // Solo cuenta el primero de cada paquete para no duplicar ingreso
     const uniqueForIncome = active.filter((r) => !r.package_id || (r.package_index ?? 1) === 1)
-    const totalIngresos = uniqueForIncome.reduce((sum, r) => sum + adminSharePerPaseo(effectivePrice(r)), 0)
+    // Para paquetes, la cuota admin se cuenta por CADA paseo del paquete (no solo el primero)
+    const sumAdminForPackage = (r: AdminReservation) => {
+      const perPaseo = adminSharePerPaseo(r.price_mxn, feeForReservation(r))
+      const count = r.package_total && r.package_total > 1 ? r.package_total : 1
+      return perPaseo * count
+    }
+    const totalIngresos = uniqueForIncome.reduce((sum, r) => sum + sumAdminForPackage(r), 0)
     const ingresosCompletados = uniqueForIncome
       .filter((r) => r.status === "completada")
-      .reduce((sum, r) => sum + adminSharePerPaseo(effectivePrice(r)), 0)
+      .reduce((sum, r) => sum + sumAdminForPackage(r), 0)
     const tasa = active.length > 0 ? Math.round((completados / active.length) * 100) : null
     return { agendados, completados, totalMin, totalH, totalRem, totalIngresos, ingresosCompletados, tasa }
   }, [weekReservations, packagePrices, adminFee])
@@ -491,6 +499,20 @@ export function AdminPanel({
       return tb - ta
     })
   }, [reservations, search, statusFilter, walkerMap, ownerMap])
+
+  // Guarda el admin_fee_mxn en una reservación específica (o el paquete entero)
+  const [editingFeeId, setEditingFeeId] = useState<string | null>(null)
+  const [editingFeeValue, setEditingFeeValue] = useState<number>(0)
+  const saveReservationFee = async (r: AdminReservation, value: number) => {
+    const supabase = createClient()
+    const query = supabase.from("reservations").update({ admin_fee_mxn: value })
+    const { error } = r.package_id ? await query.eq("package_id", r.package_id) : await query.eq("id", r.id)
+    if (error) { alert(`Error: ${error.message}`); return }
+    setReservations((prev) =>
+      prev.map((x) => (r.package_id ? x.package_id === r.package_id : x.id === r.id) ? { ...x, admin_fee_mxn: value } : x),
+    )
+    setEditingFeeId(null)
+  }
 
   // Borrar paseo (cancelado o cualquier estado, solo admin)
   const deleteReservation = async (id: string) => {
@@ -839,8 +861,42 @@ export function AdminPanel({
                         <td className="py-3 pr-4">{durationMin(r.scheduled_at, r.scheduled_until)} min</td>
                         <td className="py-3 pr-4 font-bold">${effectivePrice(r).toLocaleString()}</td>
                         <td className="py-3 pr-4 text-xs leading-tight">
-                          <div className="font-bold text-primary">Admin: ${adminSharePerPaseo(effectivePrice(r)).toLocaleString()}</div>
-                          <div className="text-muted-foreground">Paseador: ${walkerSharePerPaseo(effectivePrice(r)).toLocaleString()}</div>
+                          {editingFeeId === r.id ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                autoFocus
+                                value={editingFeeValue}
+                                onChange={(e) => setEditingFeeValue(Math.max(0, parseInt(e.target.value) || 0))}
+                                onBlur={() => saveReservationFee(r, editingFeeValue)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveReservationFee(r, editingFeeValue)
+                                  if (e.key === "Escape") setEditingFeeId(null)
+                                }}
+                                className="w-16 rounded border border-primary/40 bg-white px-1.5 py-0.5 text-xs font-bold text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                              />
+                              <span className="text-[10px] text-muted-foreground">×{r.package_total && r.package_total > 1 ? r.package_total : 1}</span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingFeeId(r.id)
+                                setEditingFeeValue(feeForReservation(r))
+                              }}
+                              className="text-left hover:opacity-70"
+                              title="Click para editar la ganancia del admin"
+                            >
+                              <div className="font-bold text-primary underline decoration-dotted underline-offset-2">
+                                Admin: ${adminSharePerPaseo(effectivePrice(r), feeForReservation(r)).toLocaleString()}
+                              </div>
+                              <div className="text-muted-foreground">
+                                Paseador: ${walkerSharePerPaseo(effectivePrice(r), feeForReservation(r)).toLocaleString()}
+                              </div>
+                            </button>
+                          )}
                         </td>
                         <td className="py-3 pr-4">
                           <select
