@@ -27,7 +27,7 @@ export default async function PanelPage() {
   const { data: reservations } = await supabase
     .from("reservations")
     .select(
-      "id, plan_name, dogs_count, price_mxn, status, notes, created_at, user_id, scheduled_at, scheduled_until, zone, pickup_address, dog_name, dog_size, walker_id, visibility, payment_status",
+      "id, plan_name, dogs_count, price_mxn, status, notes, created_at, user_id, scheduled_at, scheduled_until, zone, pickup_address, dog_name, dog_size, walker_id, visibility, payment_status, package_id, package_index, package_total, manual_client_name, manual_client_phone",
     )
     .order("created_at", { ascending: false })
 
