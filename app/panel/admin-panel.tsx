@@ -140,20 +140,20 @@ export function AdminPanel({
   const [reservations, setReservations] = useState(initial)
   const [users, setUsers] = useState(allUsers)
   const [view, setView] = useState<"tabla" | "calendario" | "usuarios">("tabla")
-  // Porcentaje editable de comisión del admin (resto es del paseador)
-  const [adminPct, setAdminPct] = useState(initialAdminPct)
-  const [savingPct, setSavingPct] = useState(false)
-  const adminShare = adminPct / 100
-  const walkerShare = 1 - adminShare
-  const saveAdminPct = async (v: number) => {
-    setAdminPct(v)
-    setSavingPct(true)
+  // Monto fijo (en pesos) que se queda el admin por cada paseo. El resto es del paseador.
+  const [adminFee, setAdminFee] = useState(initialAdminPct)
+  const [savingFee, setSavingFee] = useState(false)
+  const adminSharePerPaseo = (price: number) => Math.min(adminFee, price)
+  const walkerSharePerPaseo = (price: number) => Math.max(0, price - adminFee)
+  const saveAdminFee = async (v: number) => {
+    setAdminFee(v)
+    setSavingFee(true)
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
       await supabase.from("profiles").update({ commission_pct: v }).eq("id", user.id)
     }
-    setSavingPct(false)
+    setSavingFee(false)
   }
   const [updatingUser, setUpdatingUser] = useState<string | null>(null)
   const [assignFor, setAssignFor] = useState<AdminReservation | null>(null)
@@ -434,10 +434,10 @@ export function AdminPanel({
     const totalH = Math.floor(totalMin / 60)
     const totalRem = totalMin % 60
     // Solo el 30% es ingreso del admin (el otro 70% va al paseador)
-    const totalIngresos = active.reduce((sum, r) => sum + Math.round(Number(r.price_mxn) * adminShare), 0)
+    const totalIngresos = active.reduce((sum, r) => sum + adminSharePerPaseo(Number(r.price_mxn)), 0)
     const ingresosCompletados = active
       .filter((r) => r.status === "completada")
-      .reduce((sum, r) => sum + Math.round(Number(r.price_mxn) * adminShare), 0)
+      .reduce((sum, r) => sum + adminSharePerPaseo(Number(r.price_mxn)), 0)
     const tasa = active.length > 0 ? Math.round((completados / active.length) * 100) : null
     return { agendados, completados, totalMin, totalH, totalRem, totalIngresos, ingresosCompletados, tasa }
   }, [weekReservations])
@@ -630,7 +630,7 @@ export function AdminPanel({
             />
             <StatCard
               icon={<DollarSign className="h-5 w-5 text-primary" />}
-              title={`Mi ingreso (${adminPct}%)`}
+              title={`Mi ingreso ($${adminFee}/paseo)`}
               value={`$${stats.totalIngresos.toLocaleString()}`}
               sub={`$${stats.ingresosCompletados.toLocaleString()} ya completados · solo tu parte`}
             />
@@ -648,26 +648,25 @@ export function AdminPanel({
           <div>
             <p className="text-sm font-bold">Reparto de ganancias</p>
             <p className="text-xs text-muted-foreground">
-              Define cuánto te queda a ti del precio total. Cambia y guarda cuando quieras.
+              Define cuánto ganas tú por cada paseo (en pesos). Lo demás va al paseador.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-xs font-bold">Mi %:</label>
+            <label className="text-xs font-bold">Mi ganancia por paseo: $</label>
             <Input
               type="number"
               min={0}
-              max={100}
-              value={adminPct}
-              onChange={(e) => setAdminPct(Number(e.target.value))}
-              className="w-20"
+              value={adminFee}
+              onChange={(e) => setAdminFee(Number(e.target.value))}
+              className="w-24"
             />
-            <span className="text-xs font-bold text-muted-foreground">% · Paseador: {100 - adminPct}%</span>
+            <span className="text-xs font-bold text-muted-foreground">MXN</span>
             <button
-              onClick={() => saveAdminPct(adminPct)}
-              disabled={savingPct}
+              onClick={() => saveAdminFee(adminFee)}
+              disabled={savingFee}
               className="rounded-full bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50"
             >
-              {savingPct ? "Guardando…" : "Guardar"}
+              {savingFee ? "Guardando…" : "Guardar"}
             </button>
           </div>
         </div>
@@ -773,8 +772,8 @@ export function AdminPanel({
                               <>
                                 <div className="text-xs leading-tight">
                                   {packageDates[r.package_id].map((d, di) => (
-                                    <div key={di}>
-                                      {d.toLocaleDateString("es-MX", { day: "numeric", month: "short" })} · {d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                                    <div key={di} className="capitalize">
+                                      {d.toLocaleDateString("es-MX", { weekday: "long" })} · {d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
                                     </div>
                                   ))}
                                 </div>
@@ -784,7 +783,9 @@ export function AdminPanel({
                               </>
                             ) : (
                               <>
-                                {new Date(r.scheduled_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
+                                <span className="capitalize">
+                                  {new Date(r.scheduled_at).toLocaleDateString("es-MX", { weekday: "long" })}
+                                </span>
                                 <div className="text-xs text-muted-foreground">{fmtTime(r.scheduled_at)}</div>
                               </>
                             )
@@ -823,8 +824,8 @@ export function AdminPanel({
                         <td className="py-3 pr-4">{durationMin(r.scheduled_at, r.scheduled_until)} min</td>
                         <td className="py-3 pr-4 font-bold">${Number(r.price_mxn).toLocaleString()}</td>
                         <td className="py-3 pr-4 text-xs leading-tight">
-                          <div className="font-bold text-primary">Admin ({adminPct}%): ${Math.round(Number(r.price_mxn) * adminShare).toLocaleString()}</div>
-                          <div className="text-muted-foreground">Paseador ({100 - adminPct}%): ${Math.round(Number(r.price_mxn) * walkerShare).toLocaleString()}</div>
+                          <div className="font-bold text-primary">Admin: ${adminSharePerPaseo(Number(r.price_mxn)).toLocaleString()}</div>
+                          <div className="text-muted-foreground">Paseador: ${walkerSharePerPaseo(Number(r.price_mxn)).toLocaleString()}</div>
                         </td>
                         <td className="py-3 pr-4">
                           <select
