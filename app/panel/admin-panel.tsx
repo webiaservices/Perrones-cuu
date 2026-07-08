@@ -425,26 +425,6 @@ export function AdminPanel({
     })
   }, [reservations, weekStart])
 
-  // Métricas de la semana
-  const stats = useMemo(() => {
-    const active = weekReservations.filter((r) => r.status !== "cancelada")
-    const agendados = active.length
-    const completados = active.filter((r) => r.status === "completada").length
-    const totalMin = active.reduce((sum, r) => sum + durationMin(r.scheduled_at, r.scheduled_until), 0)
-    const totalH = Math.floor(totalMin / 60)
-    const totalRem = totalMin % 60
-    // Solo el 30% es ingreso del admin (el otro 70% va al paseador)
-    // Solo cuenta el primero de cada paquete para no duplicar ingreso
-    const uniqueForIncome = active.filter((r) => !r.package_id || (r.package_index ?? 1) === 1)
-    const totalIngresos = uniqueForIncome.reduce((sum, r) => sum + adminSharePerPaseo(effectivePrice(r)), 0)
-    const ingresosCompletados = uniqueForIncome
-      .filter((r) => r.status === "completada")
-      .reduce((sum, r) => sum + adminSharePerPaseo(effectivePrice(r)), 0)
-    const tasa = active.length > 0 ? Math.round((completados / active.length) * 100) : null
-    return { agendados, completados, totalMin, totalH, totalRem, totalIngresos, ingresosCompletados, tasa }
-  }, [weekReservations])
-
-  // Tabla filtrada
   // Mapa: package_id → todas las fechas de ese paquete (ordenadas)
   const packageDates = useMemo(() => {
     const m: Record<string, Date[]> = {}
@@ -472,6 +452,24 @@ export function AdminPanel({
   // Precio efectivo de una fila (si es paquete, el total; si no, el precio individual)
   const effectivePrice = (r: AdminReservation) =>
     r.package_id ? (packagePrices[r.package_id] ?? Number(r.price_mxn || 0)) : Number(r.price_mxn || 0)
+
+  // Métricas de la semana
+  const stats = useMemo(() => {
+    const active = weekReservations.filter((r) => r.status !== "cancelada")
+    const agendados = active.length
+    const completados = active.filter((r) => r.status === "completada").length
+    const totalMin = active.reduce((sum, r) => sum + durationMin(r.scheduled_at, r.scheduled_until), 0)
+    const totalH = Math.floor(totalMin / 60)
+    const totalRem = totalMin % 60
+    // Solo cuenta el primero de cada paquete para no duplicar ingreso
+    const uniqueForIncome = active.filter((r) => !r.package_id || (r.package_index ?? 1) === 1)
+    const totalIngresos = uniqueForIncome.reduce((sum, r) => sum + adminSharePerPaseo(effectivePrice(r)), 0)
+    const ingresosCompletados = uniqueForIncome
+      .filter((r) => r.status === "completada")
+      .reduce((sum, r) => sum + adminSharePerPaseo(effectivePrice(r)), 0)
+    const tasa = active.length > 0 ? Math.round((completados / active.length) * 100) : null
+    return { agendados, completados, totalMin, totalH, totalRem, totalIngresos, ingresosCompletados, tasa }
+  }, [weekReservations, packagePrices, adminFee])
 
   const filtered = useMemo(() => {
     // Agrupar paseos recurrentes: solo mostrar el primero de cada paquete
