@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
 
     if (!RESEND_API_KEY) return NextResponse.json({ skipped: true, reason: "sin Resend" })
 
-    const when = r.scheduled_at ? new Date(r.scheduled_at).toLocaleString("es-MX") : "—"
+    const when = r.scheduled_at ? new Date(r.scheduled_at).toLocaleString("es-MX", { timeZone: "America/Chihuahua" }) : "—"
     await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },

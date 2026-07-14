@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
           month: "long",
           hour: "2-digit",
           minute: "2-digit",
+          timeZone: "America/Chihuahua",
         })
       : "Por confirmar"
 

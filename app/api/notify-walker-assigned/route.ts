@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     if (!RESEND_API_KEY) return NextResponse.json({ skipped: true, reason: "sin Resend" })
 
     const when = r.scheduled_at
-      ? new Date(r.scheduled_at).toLocaleString("es-MX", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })
+      ? new Date(r.scheduled_at).toLocaleString("es-MX", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "America/Chihuahua" })
       : "Por confirmar"
     const ganancia = walkerPayout(Number(r.price_mxn))
 

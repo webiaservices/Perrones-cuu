@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
     const scheduledLabel = reservation.scheduled_at
       ? new Date(reservation.scheduled_at).toLocaleString("es-MX", {
           weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit",
+          timeZone: "America/Chihuahua",
         })
       : "Por confirmar"
 

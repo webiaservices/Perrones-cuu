@@ -103,9 +103,13 @@ export function ReservarClient({
   // Para planes recurrentes (3 días, semanal, VIP) el dueño elige cada día y hora individualmente
   const walksCount = Math.max(1, initialPlan.walksCount ?? 1)
   const initialDate = (() => {
+    // Fecha local (no toISOString: en la tarde-noche UTC ya va un día adelante)
     const d = new Date()
     d.setDate(d.getDate() + 1)
-    return d.toISOString().split("T")[0]
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, "0")
+    const day = String(d.getDate()).padStart(2, "0")
+    return `${y}-${m}-${day}`
   })()
   const [slots, setSlots] = useState<{ date: string; startHour: string }[]>(
     Array.from({ length: walksCount }, () => ({ date: initialDate, startHour: "09:00" })),
@@ -610,14 +614,14 @@ export function ReservarClient({
                     <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                     {walksCount === 1 ? (
                       <span>
-                        {new Date(slots[0].date).toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" })} · recogemos a las {slots[0].startHour}
+                        {new Date(slots[0].date + "T00:00:00").toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" })} · recogemos a las {slots[0].startHour}
                       </span>
                     ) : (
                       <div className="space-y-0.5">
                         <p><b>{walksCount} paseos</b> en las fechas que elegiste:</p>
                         {[...slots].sort((a, b) => new Date(`${a.date}T${a.startHour}`).getTime() - new Date(`${b.date}T${b.startHour}`).getTime()).map((s, i) => (
                           <p key={i}>
-                            · {new Date(s.date).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })} a las {s.startHour}
+                            · {new Date(s.date + "T00:00:00").toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })} a las {s.startHour}
                           </p>
                         ))}
                       </div>
