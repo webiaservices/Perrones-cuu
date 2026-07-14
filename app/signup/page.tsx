@@ -28,7 +28,10 @@ const ROLE_OPTIONS: { value: Role; label: string; desc: string; icon: typeof Hea
 function SignUpForm() {
   const router = useRouter()
   const params = useSearchParams()
-  const initialRole = (params.get("role") as Role) || "dueno"
+  // Solo dueño o paseador pueden auto-registrarse. Los admin se crean promoviendo
+  // a un usuario desde el panel, nunca desde ?role=admin en el registro público.
+  const roleParam = params.get("role")
+  const initialRole: Role = roleParam === "paseador" ? "paseador" : "dueno"
 
   const [role, setRole] = useState<Role>(initialRole)
   const [fullName, setFullName] = useState("")
@@ -48,8 +51,8 @@ function SignUpForm() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const r = params.get("role") as Role
-    if (r === "dueno" || r === "paseador" || r === "admin") setRole(r)
+    const r = params.get("role")
+    if (r === "dueno" || r === "paseador") setRole(r)
   }, [params])
 
   const needsContract = role === "dueno" || role === "paseador"

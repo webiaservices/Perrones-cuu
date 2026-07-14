@@ -103,7 +103,8 @@ export async function POST(req: NextRequest) {
       }),
     })
 
-    return NextResponse.json({ ok: true, sent_to: adminEmails })
+    // No devolver adminEmails: la ruta es llamable sin auth y filtraría correos del admin
+    return NextResponse.json({ ok: true, notified: adminEmails.length })
   } catch (e: unknown) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Error" }, { status: 500 })
   }

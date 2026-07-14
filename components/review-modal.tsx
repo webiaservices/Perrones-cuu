@@ -32,7 +32,6 @@ export function ReviewModal({
     const { error: err } = await supabase.from("reviews").insert({
       reservation_id: reservation.id,
       owner_id: reservation.user_id,
-      walker_id: reservation.walker_id ?? reservation.user_id, // fallback si no hay walker
       rating,
       comment: comment.trim() || null,
     })
