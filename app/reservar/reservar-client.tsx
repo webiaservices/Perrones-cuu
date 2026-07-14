@@ -448,11 +448,14 @@ export function ReservarClient({
                             const selectedDays = (days ?? []).slice(0, walksCount)
                             // Ordenar cronológicamente
                             const sorted = [...selectedDays].sort((a, b) => a.getTime() - b.getTime())
-                            const newSlots = sorted.map((d, i) => {
+                            const newSlots = sorted.map((d) => {
                               const y = d.getFullYear()
                               const m = String(d.getMonth() + 1).padStart(2, "0")
                               const day = String(d.getDate()).padStart(2, "0")
-                              return { date: `${y}-${m}-${day}`, startHour: slots[i]?.startHour ?? "09:00" }
+                              const dateStr = `${y}-${m}-${day}`
+                              // La hora se conserva por fecha, no por posición: al agregar/quitar
+                              // un día, las horas ya elegidas no deben brincar a otro día
+                              return { date: dateStr, startHour: slots.find((s) => s.date === dateStr)?.startHour ?? "09:00" }
                             })
                             // Rellenar hasta walksCount
                             while (newSlots.length < walksCount) {

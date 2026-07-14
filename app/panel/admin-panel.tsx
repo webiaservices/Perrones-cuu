@@ -567,7 +567,10 @@ export function AdminPanel({
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `perrones-paseos-${new Date().toISOString().split("T")[0]}.csv`
+    a.download = `perrones-paseos-${(() => {
+      const d = new Date()
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+    })()}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
