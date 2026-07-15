@@ -140,6 +140,28 @@ export function walkerPayout(clientPrice: number) {
   return Math.round(clientPrice * WALKER_SHARE)
 }
 
+// ============================================================
+// FÓRMULA ÚNICA DE REPARTO (usar en TODOS lados: panel admin,
+// panel paseador y correos, para que nunca se contradigan)
+// - Default: el admin se queda el 30% del precio.
+// - Editable: si la reserva trae admin_fee_mxn (en PESOS), ese
+//   monto manda. Para paquetes, admin_fee_mxn es POR PASEO.
+// ============================================================
+
+/** Comisión del admin en pesos para un paseo/paquete de precio `price`.
+ *  `feeOverride` = admin_fee_mxn (por paseo). `walks` = paseos del paquete. */
+export function adminFeeFor(price: number, feeOverride?: number | null, walks = 1) {
+  if (feeOverride !== null && feeOverride !== undefined) {
+    return Math.min(Math.max(0, Math.round(feeOverride)) * Math.max(1, walks), price)
+  }
+  return Math.round(price * ADMIN_SHARE)
+}
+
+/** Lo que recibe el paseador: precio menos la comisión del admin. */
+export function walkerPayoutFor(price: number, feeOverride?: number | null, walks = 1) {
+  return Math.max(0, price - adminFeeFor(price, feeOverride, walks))
+}
+
 export const STATUS_LABELS: Record<string, string> = {
   buscando_paseador: "Buscando paseador",
   confirmada: "Confirmada",

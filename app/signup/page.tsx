@@ -6,6 +6,7 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Heart, Footprints } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import { traducirErrorAuth } from "@/lib/auth-errors"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -126,7 +127,7 @@ function SignUpForm() {
         router.push(successUrl)
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Ocurrió un error al registrarte")
+      setError(err instanceof Error ? traducirErrorAuth(err.message) : "Ocurrió un error al registrarte")
     } finally {
       setLoading(false)
     }

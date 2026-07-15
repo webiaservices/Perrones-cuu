@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { BRAND } from "@/lib/constants"
+import { getCaller } from "@/lib/api-auth"
 
 /**
  * Notifica al admin por correo cuando un dueño crea un paseo nuevo.
@@ -12,18 +13,32 @@ export async function POST(req: NextRequest) {
   const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://perronescuu.com"
 
   try {
-    const { reservationId } = await req.json()
+    const { reservationId, kind } = await req.json()
     if (!reservationId) return NextResponse.json({ error: "reservationId requerido" }, { status: 400 })
+    // kind "paseador_solto": un paseador soltó un paseo que ya había aceptado
+    const solto = kind === "paseador_solto"
 
     const admin = createAdminClient()
 
     const { data: r } = await admin
       .from("reservations")
-      .select("id, user_id, dog_name, dog_size, dogs_count, scheduled_at, scheduled_until, zone, pickup_address, price_mxn, plan_name, notes, package_id, package_total")
+      .select("id, user_id, dog_name, dog_size, dogs_count, scheduled_at, scheduled_until, zone, pickup_address, price_mxn, plan_name, notes, package_id, package_total, status, walker_id")
       .eq("id", reservationId)
       .single()
 
     if (!r) return NextResponse.json({ skipped: true, reason: "reserva no encontrada" })
+
+    // Dueño de la reserva, cualquier paseador (que soltó un paseo) o admin
+    const caller = await getCaller()
+    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    if (!caller.isAdmin && r.user_id !== caller.id && caller.role !== "paseador") {
+      return NextResponse.json({ error: "No autorizado" }, { status: 403 })
+    }
+    // Para "paseador soltó": verifica que de verdad quedó libre — evita que un
+    // paseador dispare falsas alertas de "se soltó" sobre paseos ajenos/activos
+    if (solto && (r.status !== "buscando_paseador" || r.walker_id)) {
+      return NextResponse.json({ skipped: true, reason: "el paseo no está libre" })
+    }
 
     // Info del cliente
     const { data: owner } = await admin
@@ -59,7 +74,9 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         from: RESEND_FROM,
         to: adminEmails,
-        subject: `Nuevo paseo: ${r.dog_name ?? "Perro"} - ${owner?.full_name ?? "Cliente"} (${r.zone ?? "—"})`,
+        subject: solto
+          ? `⚠️ Un paseador soltó el paseo de ${r.dog_name ?? "Perro"} (${r.zone ?? "—"}) — se reabrió la búsqueda`
+          : `Nuevo paseo: ${r.dog_name ?? "Perro"} - ${owner?.full_name ?? "Cliente"} (${r.zone ?? "—"})`,
         html: `
 <!DOCTYPE html>
 <html><body style="margin:0;background:#f6fbfb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0d3333;">
@@ -67,11 +84,13 @@ export async function POST(req: NextRequest) {
     <div style="background:#fff;border-radius:28px;border:1px solid #d5ebe8;overflow:hidden;">
       <div style="background:#3DCABD;padding:24px;text-align:center;color:#fff;">
         <p style="margin:0;font-size:14px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">${BRAND.name}</p>
-        <h1 style="margin:8px 0 0;font-size:22px;font-weight:800;">Tienes un paseo nuevo</h1>
+        <h1 style="margin:8px 0 0;font-size:22px;font-weight:800;">${solto ? "⚠️ Un paseador soltó este paseo" : "Tienes un paseo nuevo"}</h1>
       </div>
       <div style="padding:28px 24px;">
         <p style="margin:0 0 18px;font-size:15px;">
-          Un cliente acaba de reservar. Asignale paseador desde el panel.
+          ${solto
+            ? "El paseador que lo había aceptado lo soltó. El paseo volvió a quedar disponible — asigna otro paseador o contacta al cliente."
+            : "Un cliente acaba de reservar. Asignale paseador desde el panel."}
         </p>
 
         <h2 style="margin:0 0 10px;font-size:15px;color:#19756b;border-bottom:1px solid #d5ebe8;padding-bottom:6px;">Cliente</h2>

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { BRAND, STATUS_LABELS, walkerPayout } from "@/lib/constants"
+import { BRAND, STATUS_LABELS, walkerPayoutFor } from "@/lib/constants"
 import { sendWhatsAppTemplate } from "@/lib/whatsapp"
+import { getCaller } from "@/lib/api-auth"
 
 /**
  * Notifica por correo a los paseadores cuya `zone` coincide con la reserva.
@@ -24,16 +25,30 @@ export async function POST(req: NextRequest) {
     // 1. Obtén la reserva con todos los datos para el correo
     const { data: reservation, error: resErr } = await admin
       .from("reservations")
-      .select("id, plan_name, dogs_count, price_mxn, status, scheduled_at, scheduled_until, zone, dog_name, dog_size")
+      .select("id, user_id, plan_name, dogs_count, price_mxn, status, scheduled_at, scheduled_until, zone, dog_name, dog_size, package_id, package_index, package_total, admin_fee_mxn")
       .eq("id", reservationId)
       .single()
+
+    const caller = await getCaller()
+    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
 
     if (resErr || !reservation) {
       return NextResponse.json({ error: "Reserva no encontrada" }, { status: 404 })
     }
 
+    // Solo el dueño de la reserva o un admin pueden disparar el blast a paseadores
+    if (!caller.isAdmin && reservation.user_id !== caller.id) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 403 })
+    }
+
     if (reservation.status !== "buscando_paseador") {
       return NextResponse.json({ notified: 0, reason: "no necesita notificación" })
+    }
+
+    // Paquetes: solo el paseo 1 dispara el correo (uno por paquete, no N).
+    // El correo ya describe el paquete completo y la ganancia total.
+    if (reservation.package_index && reservation.package_index > 1) {
+      return NextResponse.json({ notified: 0, reason: "paseo secundario de paquete" })
     }
 
     // 2. Encuentra paseadores en esa zona
@@ -80,7 +95,8 @@ export async function POST(req: NextRequest) {
         })
       : "Por confirmar"
 
-    const ganancia = walkerPayout(Number(reservation.price_mxn))
+    // Misma fórmula que los paneles: precio − comisión admin (30% default o fee en pesos)
+    const ganancia = walkerPayoutFor(Number(reservation.price_mxn), reservation.admin_fee_mxn, reservation.package_total ?? 1)
 
     // 5. Manda correo a cada paseador via Resend
     const results = await Promise.allSettled(
@@ -102,6 +118,7 @@ export async function POST(req: NextRequest) {
               dogSize: reservation.dog_size ?? "",
               scheduledLabel,
               ganancia,
+              walks: reservation.package_total ?? 1,
               status: STATUS_LABELS[reservation.status] ?? reservation.status,
             }),
           }),
@@ -140,6 +157,7 @@ function buildEmailHtml(params: {
   dogSize: string
   scheduledLabel: string
   ganancia: number
+  walks: number
   status: string
 }) {
   const { name, zone, dogName, dogSize, scheduledLabel, ganancia } = params
@@ -163,7 +181,8 @@ function buildEmailHtml(params: {
             <p style="margin:4px 0;font-size:15px;"><b>Perro:</b> ${dogName}${dogSize ? ` · ${dogSize}` : ""}</p>
             <p style="margin:4px 0;font-size:15px;"><b>Zona:</b> ${zone}</p>
             <p style="margin:4px 0;font-size:15px;"><b>Cuándo:</b> ${scheduledLabel}</p>
-            <p style="margin:4px 0;font-size:15px;"><b>Tu ganancia:</b> MX$${ganancia}</p>
+            ${params.walks > 1 ? `<p style="margin:4px 0;font-size:15px;"><b>Paquete:</b> ${params.walks} paseos (al aceptar te quedas con todos)</p>` : ""}
+            <p style="margin:4px 0;font-size:15px;"><b>Tu ganancia:</b> MX$${ganancia}${params.walks > 1 ? " (paquete completo)" : ""}</p>
           </div>
           <p style="margin:0 0 24px;font-size:15px;line-height:1.5;">
             Entra a tu panel para aceptarlo antes que otro paseador.

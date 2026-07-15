@@ -32,11 +32,29 @@ export async function POST(req: NextRequest) {
     // Lee el paseo
     const { data: current } = await admin
       .from("reservations")
-      .select("id, walker_id, status, visibility, package_id, dog_name")
+      .select("id, walker_id, status, visibility, package_id, dog_name, scheduled_at")
       .eq("id", reservationId)
       .single()
 
     if (!current) return NextResponse.json({ error: "Este paseo ya no existe" }, { status: 404 })
+
+    // No aceptar paseos cuya fecha ya pasó (tolerancia de 1 hora). Para
+    // paquetes se mira la ÚLTIMA fecha: sigue aceptable mientras quede un
+    // día futuro (si no, un paquete se volvería inaceptable tras el día 1).
+    const cutoff = Date.now() - 60 * 60 * 1000
+    let lastAt = current.scheduled_at ? new Date(current.scheduled_at).getTime() : Infinity
+    if (current.package_id) {
+      const { data: pkg } = await admin
+        .from("reservations")
+        .select("scheduled_at")
+        .eq("package_id", current.package_id)
+        .order("scheduled_at", { ascending: false })
+        .limit(1)
+      if (pkg && pkg[0]?.scheduled_at) lastAt = new Date(pkg[0].scheduled_at).getTime()
+    }
+    if (lastAt < cutoff) {
+      return NextResponse.json({ error: "La fecha de este paseo ya pasó — ya no se puede aceptar" }, { status: 409 })
+    }
 
     if (current.walker_id && current.walker_id !== user.id) {
       return NextResponse.json({ error: "Otro paseador ya tomó este paseo" }, { status: 409 })
@@ -49,26 +67,37 @@ export async function POST(req: NextRequest) {
     }
     // visibility ya no bloquea: si llega acá, lo agarra
 
-    // Hace el UPDATE bypassing RLS
+    // Hace el UPDATE bypassing RLS. El .is("walker_id", null) es el candado
+    // contra carreras, y .select() nos dice si de verdad ganamos la fila:
+    // si otro paseador llegó primero, el update afecta 0 filas — antes eso
+    // regresaba "ok" falso y los dos paseadores creían tener el paseo.
     let updateError = null
+    let updatedRows = 0
     if (current.package_id) {
-      const { error } = await admin
+      const { data, error } = await admin
         .from("reservations")
         .update({ status: "confirmada", walker_id: user.id, visibility: "public" })
         .eq("package_id", current.package_id)
         .is("walker_id", null)
+        .select("id")
       updateError = error
+      updatedRows = data?.length ?? 0
     } else {
-      const { error } = await admin
+      const { data, error } = await admin
         .from("reservations")
         .update({ status: "confirmada", walker_id: user.id, visibility: "public" })
         .eq("id", reservationId)
         .is("walker_id", null)
+        .select("id")
       updateError = error
+      updatedRows = data?.length ?? 0
     }
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 })
+    }
+    if (updatedRows === 0) {
+      return NextResponse.json({ error: "Otro paseador tomó este paseo primero" }, { status: 409 })
     }
 
     return NextResponse.json({ ok: true })

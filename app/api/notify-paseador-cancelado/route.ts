@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { BRAND } from "@/lib/constants"
+import { getCaller } from "@/lib/api-auth"
 
 /**
  * Notifica al paseador asignado cuando el dueño cancela una reserva confirmada.
@@ -16,11 +17,24 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient()
     const { data: r } = await admin
       .from("reservations")
-      .select("id, walker_id, dog_name, scheduled_at, zone")
+      .select("id, user_id, walker_id, dog_name, scheduled_at, zone, status, package_id, package_total")
       .eq("id", reservationId)
       .single()
 
     if (!r || !r.walker_id) return NextResponse.json({ skipped: true })
+
+    // Solo el dueño de la reserva o un admin pueden disparar este correo
+    const caller = await getCaller()
+    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    if (!caller.isAdmin && r.user_id !== caller.id) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 403 })
+    }
+
+    // Solo mandar si la reserva realmente está cancelada — evita que alguien
+    // dispare correos falsos de cancelación con un reservationId válido
+    if (r.status !== "cancelada") {
+      return NextResponse.json({ skipped: true, reason: "la reserva no está cancelada" })
+    }
 
     const { data: u } = await admin.auth.admin.getUserById(r.walker_id)
     const email = u?.user?.email
@@ -47,7 +61,8 @@ export async function POST(req: NextRequest) {
       </div>
       <div style="padding:28px 24px;">
         <p style="margin:0 0 16px;font-size:16px;">El paseo de <b>${r.dog_name ?? "el perrito"}</b> del <b>${when}</b> en <b>${r.zone ?? ""}</b> fue cancelado por el dueño.</p>
-        <p style="margin:0 0 16px;font-size:15px;">No tienes que hacer nada. Esta hora queda libre en tu agenda.</p>
+        ${r.package_id && (r.package_total ?? 1) > 1 ? `<p style="margin:0 0 16px;font-size:15px;font-weight:700;">⚠️ Se canceló el PAQUETE COMPLETO: los ${r.package_total} paseos, no solo esta fecha.</p>` : ""}
+        <p style="margin:0 0 16px;font-size:15px;">No tienes que hacer nada. ${r.package_id && (r.package_total ?? 1) > 1 ? "Esas horas quedan libres" : "Esta hora queda libre"} en tu agenda.</p>
       </div>
     </div>
   </div>

@@ -71,25 +71,28 @@ export function PanelClient({
   const isWalker = role === "paseador"
   const isAdmin = role === "admin"
 
-  const updateStatus = async (id: string, status: string) => {
+  const updateStatus = async (id: string, status: string): Promise<boolean> => {
     setUpdating(id)
     const supabase = createClient()
-    // Si es paquete, actualiza TODOS los paseos del paquete
+    // Si es paquete, actualiza TODOS los paseos del paquete (menos los ya
+    // completados, que conservan su registro)
     const target = reservations.find((r) => r.id === id)
     const query = supabase.from("reservations").update({ status })
     const { error } = target?.package_id
-      ? await query.eq("package_id", target.package_id)
+      ? await query.eq("package_id", target.package_id).neq("status", "completada")
       : await query.eq("id", id)
     setUpdating(null)
     if (!error) {
       setReservations((prev) =>
         prev.map((r) =>
-          (target?.package_id ? r.package_id === target.package_id : r.id === id)
+          (target?.package_id ? r.package_id === target.package_id && r.status !== "completada" : r.id === id)
             ? { ...r, status }
             : r,
         ),
       )
+      return true
     }
+    return false
   }
 
   // Dueño puede borrar paseos cancelados
@@ -386,11 +389,12 @@ export function PanelClient({
                               </a>
                             </Button>
                             <Button
-                              onClick={() => {
+                              onClick={async () => {
                                 if (confirm("¿Seguro que quieres cancelar este paseo? Esta acción no se puede deshacer.")) {
-                                  updateStatus(r.id, "cancelada")
-                                  // Si había paseador asignado, notificarle
-                                  if (r.walker_id) {
+                                  // Espera a que la cancelación se guarde ANTES de avisar
+                                  // al paseador (si no, el correo se salta por carrera)
+                                  const ok = await updateStatus(r.id, "cancelada")
+                                  if (ok && r.walker_id) {
                                     fetch("/api/notify-paseador-cancelado", {
                                       method: "POST",
                                       headers: { "Content-Type": "application/json" },

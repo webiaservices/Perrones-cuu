@@ -70,16 +70,33 @@ export function ReservarClient({
   const dogsCount = selectedDogIds.length
 
   const toggleDog = (id: string) => {
-    setSelectedDogIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+    setSelectedDogIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id)
+      // La matriz de precios llega a 3 perros; más de 3 se cotiza por WhatsApp
+      if (prev.length >= 3) {
+        setError("Máximo 3 perritos por paseo. Para más, escríbenos por WhatsApp.")
+        return prev
+      }
+      setError(null)
+      return [...prev, id]
+    })
   }
 
   const saveNewDog = async () => {
     if (!newDog.name.trim()) return alert("Pon el nombre del perro")
     setSavingNewDog(true)
+    // Sesión pudo expirar (o logout en otra pestaña): antes esto tronaba y
+    // dejaba el botón pegado en "Guardando..."
+    const { data: { user: currentUser } } = await supabase.auth.getUser()
+    if (!currentUser) {
+      setSavingNewDog(false)
+      alert("Tu sesión expiró. Vuelve a iniciar sesión.")
+      return
+    }
     const { data, error: err } = await supabase
       .from("dogs")
       .insert({
-        owner_id: (await supabase.auth.getUser()).data.user!.id,
+        owner_id: currentUser.id,
         name: newDog.name.trim(),
         breed: newDog.breed.trim() || null,
         size: newDog.size,
@@ -112,7 +129,9 @@ export function ReservarClient({
     return `${y}-${m}-${day}`
   })()
   const [slots, setSlots] = useState<{ date: string; startHour: string }[]>(
-    Array.from({ length: walksCount }, () => ({ date: initialDate, startHour: "09:00" })),
+    // Multi-día: fechas vacías para que el usuario ELIJA sus días (antes los
+    // N paseos se pre-llenaban todos con mañana y se podían enviar así)
+    Array.from({ length: walksCount }, () => ({ date: walksCount > 1 ? "" : initialDate, startHour: "09:00" })),
   )
   const updateSlot = (i: number, patch: Partial<{ date: string; startHour: string }>) => {
     setSlots((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)))
@@ -131,10 +150,28 @@ export function ReservarClient({
   const canAdvance2 = slotsValid && zone && pickupAddress.trim().length > 0 && (zone !== "Otra" || zoneOther.trim().length > 0)
   const effectiveZone = zone === "Otra" ? zoneOther : zone
 
+  // Valida los horarios: nada en el pasado y sin días repetidos
+  const slotsProblem = (): string | null => {
+    const seen = new Set<string>()
+    for (const s of slots) {
+      if (!s.date || !s.startHour) return "Llena fecha y horario de cada paseo."
+      if (seen.has(s.date)) return "Elegiste el mismo día dos veces — cada paseo va en un día distinto."
+      seen.add(s.date)
+      if (new Date(`${s.date}T${s.startHour}:00`).getTime() < Date.now() - 5 * 60 * 1000) {
+        return "Esa fecha y hora ya pasaron. Elige un horario futuro."
+      }
+    }
+    return null
+  }
+
   const goNext = () => {
     setError(null)
     if (step === 1 && !canAdvance1) return setError("Selecciona al menos un perro para el paseo.")
-    if (step === 2 && !canAdvance2) return setError("Llena fecha, horario, zona y dirección de recogida.")
+    if (step === 2) {
+      if (!canAdvance2) return setError("Llena fecha, horario, zona y dirección de recogida.")
+      const problem = slotsProblem()
+      if (problem) return setError(problem)
+    }
     setStep((s) => (s === 3 ? 3 : ((s + 1) as Step)))
   }
   const goBack = () => {
@@ -150,74 +187,33 @@ export function ReservarClient({
     }
     setLoading(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("Tu sesión expiró. Vuelve a iniciar sesión.")
-
-      const selectedDogs = allDogs.filter((d) => selectedDogIds.includes(d.id))
-      const dogNames = selectedDogs.map((d) => d.name).join(", ")
-      const dogSizes = selectedDogs.map((d) => d.size).filter(Boolean).join("/")
-      const dogSpecialNeeds = selectedDogs.map((d) => d.special_needs).filter(Boolean).join(". ")
-      const baseNotes = `${selectedDogs.length === 1 ? "Perro" : "Perros"}: ${dogNames}${dogSpecialNeeds ? `. ${dogSpecialNeeds}` : ""}`
-      const notes = tripNotes ? `${baseNotes}. Notas del paseo: ${tripNotes}` : baseNotes
-      const firstDogId = selectedDogs[0]?.id ?? null
-
-      // Genera N paseos según el plan (1, 3, 5 o 7), uno por cada slot seleccionado
-      // (el dueño elige cada día y hora individualmente, no son consecutivos automáticos)
-      // El precio total se asigna al PRIMER paseo (los demás $0) para no contabilizar dos veces.
-      const walks = slots.length
-      const packageId = walks > 1 ? crypto.randomUUID() : null
-      // Ordenamos los slots por fecha para que index 1 sea el primer día cronológicamente
-      const ordered = [...slots].sort((a, b) => {
-        const ta = new Date(`${a.date}T${a.startHour}:00`).getTime()
-        const tb = new Date(`${b.date}T${b.startHour}:00`).getTime()
-        return ta - tb
-      })
-      const rows = ordered.map((slot, i) => {
-        const at = new Date(`${slot.date}T${slot.startHour}:00`)
-        const until = new Date(at.getTime() + 60 * 60 * 1000)
-        return {
-          user_id: user.id,
-          plan_name: initialPlan.name,
-          dogs_count: dogsCount,
-          price_mxn: i === 0 ? price : 0,
-          status: "buscando_paseador",
-          notes: i === 0 ? notes : `${notes}${notes ? " · " : ""}Paseo ${i + 1} de ${walks} del paquete "${initialPlan.name}"`,
-          scheduled_at: at.toISOString(),
-          scheduled_until: until.toISOString(),
+      // La reserva se crea en el SERVIDOR: ahí se calcula el precio oficial
+      // y se validan fechas/horas — el navegador solo manda lo que eligió el usuario
+      const res = await fetch("/api/crear-reserva", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planId: initialPlan.id,
+          dogIds: selectedDogIds,
+          slots,
           zone: effectiveZone,
-          pickup_address: pickupAddress,
-          dog_name: dogNames,
-          dog_size: dogSizes,
-          dog_notes: dogSpecialNeeds,
-          dog_id: firstDogId,
-          visibility: "public",
-          payment_status: "pendiente",
-          responsibility_accepted: true,
-          package_id: packageId,
-          package_index: walks > 1 ? i + 1 : null,
-          package_total: walks > 1 ? walks : null,
-        }
+          pickupAddress,
+          tripNotes,
+          acceptedResponsibility,
+        }),
       })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error ?? "No pudimos guardar tu reserva")
 
-      const { data, error: insErr } = await supabase
-        .from("reservations")
-        .insert(rows)
-        .select("id")
+      const firstId: string = result.firstId
 
-      if (insErr) throw insErr
-      if (!data || data.length === 0) throw new Error("No se creó la reserva")
-
-      // Tomamos el primer ID para la pantalla de "buscando"
-      const firstId = data[0].id
-
-      // Notifica por correo a los paseadores de la zona para cada reserva
-      data.forEach((r) => {
-        fetch("/api/notify-paseadores", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reservationId: r.id }),
-        }).catch((err) => console.warn("Notify paseadores failed:", err))
-      })
+      // Notifica por correo a los paseadores de la zona (el endpoint ignora
+      // los paseos 2+ de un paquete para no duplicar correos)
+      fetch("/api/notify-paseadores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: firstId }),
+      }).catch((err) => console.warn("Notify paseadores failed:", err))
 
       // Avisa al admin que hay un paseo nuevo (solo del primer paseo del paquete)
       fetch("/api/notify-admin-nuevo-paseo", {

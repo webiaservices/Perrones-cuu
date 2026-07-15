@@ -27,7 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { createClient } from "@/lib/supabase/client"
-import { walkerPayout, ZONES, WEEKDAYS } from "@/lib/constants"
+import { walkerPayoutFor, ZONES, WEEKDAYS } from "@/lib/constants"
 
 export type WalkerReservation = {
   id: string
@@ -48,6 +48,7 @@ export type WalkerReservation = {
   package_id?: string | null
   package_index?: number | null
   package_total?: number | null
+  admin_fee_mxn?: number | null
 }
 
 type Tab = "hoy" | "semana" | "proximos" | "disponibles"
@@ -188,18 +189,66 @@ export function WalkerPanel({
   }
 
   const updateStatus = async (id: string, status: string) => {
-    setUpdating(id)
     const supabase = createClient()
-    const { error } = await supabase.from("reservations").update({ status }).eq("id", id)
-    setUpdating(null)
-    if (!error) {
-      setReservations((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)))
-      if (status === "completada") {
-        fetch("/api/notify-pago", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reservationId: id }),
-        }).catch(() => {})
+
+    // "Cancelar" para el paseador = SOLTAR el paseo: regresa al pool para que
+    // otro lo tome (paquete completo si aplica) y se avisa al admin.
+    if (status === "cancelada") {
+      const target = reservations.find((r) => r.id === id)
+      const walks = target?.package_id ? (target.package_total ?? 1) : 1
+      const ok = confirm(
+        walks > 1
+          ? `¿Seguro que quieres soltar este paquete de ${walks} paseos? Se re-abrirá para otros paseadores.`
+          : "¿Seguro que quieres soltar este paseo? Se re-abrirá para otros paseadores.",
+      )
+      if (!ok) return
+      setUpdating(id)
+      const query = supabase
+        .from("reservations")
+        .update({ status: "buscando_paseador", walker_id: null, visibility: "public" })
+      // Soltar NO toca días ya completados/en curso: esos conservan su registro
+      const { data, error } = target?.package_id
+        ? await query.eq("package_id", target.package_id).not("status", "in", '("completada","en_curso")').select("id")
+        : await query.eq("id", id).select("id")
+      setUpdating(null)
+      if (error || !data || data.length === 0) {
+        alert(error?.message ?? "No se pudo soltar el paseo. Contacta al admin por WhatsApp.")
+        return
       }
+      setReservations((prev) =>
+        prev.map((r) =>
+          (target?.package_id ? r.package_id === target.package_id && r.status !== "completada" && r.status !== "en_curso" : r.id === id)
+            ? { ...r, status: "buscando_paseador", walker_id: null }
+            : r,
+        ),
+      )
+      // Avisa al admin que el paseo quedó sin paseador otra vez
+      fetch("/api/notify-admin-nuevo-paseo", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: id, kind: "paseador_solto" }),
+      }).catch(() => {})
+      return
+    }
+
+    setUpdating(id)
+    // .select() para detectar updates que no afectaron filas (permisos):
+    // antes esto "fingía" éxito y el estado nunca se guardaba de verdad
+    const { data, error } = await supabase
+      .from("reservations")
+      .update({ status })
+      .eq("id", id)
+      .select("id")
+    setUpdating(null)
+    if (error || !data || data.length === 0) {
+      alert(error?.message ?? "No se pudo actualizar el paseo. Avísale al admin por WhatsApp.")
+      return
+    }
+    setReservations((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)))
+    if (status === "completada") {
+      fetch("/api/notify-pago", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: id }),
+      }).catch(() => {})
     }
   }
 
@@ -221,15 +270,53 @@ export function WalkerPanel({
     Object.values(m).forEach((arr) => arr.sort((a, b) => a.getTime() - b.getTime()))
     return m
   }, [reservations])
+  // Precio total por paquete (la fila 1 carga el precio completo, las demás $0)
+  const packagePrices = useMemo(() => {
+    const m: Record<string, number> = {}
+    reservations.forEach((r) => {
+      if (r.package_id) m[r.package_id] = (m[r.package_id] ?? 0) + Number(r.price_mxn || 0)
+    })
+    return m
+  }, [reservations])
+  // Ganancia del paseador con la MISMA fórmula que usa el panel del admin:
+  // precio − comisión admin (default 30%, o el monto en pesos que el admin editó)
+  const walksOf = (r: WalkerReservation) => (r.package_total && r.package_total > 1 ? r.package_total : 1)
+  const priceOf = (r: WalkerReservation) =>
+    r.package_id ? (packagePrices[r.package_id] ?? Number(r.price_mxn || 0)) : Number(r.price_mxn || 0)
+  const gananciaFor = (r: WalkerReservation) => walkerPayoutFor(priceOf(r), r.admin_fee_mxn, walksOf(r))
+
+  // Mis paseos: SIN agrupar — cada día de un paquete es su propia cita en la
+  // agenda y el calendario (antes los días 2-N desaparecían tras el día 1)
   const myReservations = useMemo(
-    () => groupedReservations.filter((r) => r.walker_id === userId),
-    [groupedReservations, userId],
+    () => reservations.filter((r) => r.walker_id === userId),
+    [reservations, userId],
   )
-  // Paseos disponibles para tomar
-  const availableReservations = useMemo(
-    () => groupedReservations.filter((r) => r.status === "buscando_paseador" && !r.walker_id),
-    [groupedReservations],
-  )
+  // Paseos disponibles para tomar: agrupados (aceptar toma el paquete entero),
+  // sin paseos cuya fecha ya pasó, y los de TU zona primero
+  const availableReservations = useMemo(() => {
+    const cutoff = Date.now() - 60 * 60 * 1000 // tolera 1h de retraso
+    const myZone = (initialZone ?? "").toLowerCase()
+    // Para paquetes usa la ÚLTIMA fecha: sigue disponible mientras al menos
+    // un día siga en el futuro (antes desaparecía en cuanto pasaba el día 1)
+    const lastDate = (r: WalkerReservation) => {
+      if (r.package_id && packageDates[r.package_id]?.length) {
+        const arr = packageDates[r.package_id]
+        return arr[arr.length - 1].getTime()
+      }
+      return r.scheduled_at ? new Date(r.scheduled_at).getTime() : Infinity
+    }
+    return groupedReservations
+      .filter((r) => r.status === "buscando_paseador" && !r.walker_id)
+      .filter((r) => lastDate(r) >= cutoff)
+      .sort((a, b) => {
+        const az = (a.zone ?? "").toLowerCase() === myZone ? 0 : 1
+        const bz = (b.zone ?? "").toLowerCase() === myZone ? 0 : 1
+        if (az !== bz) return az - bz
+        const ta = a.scheduled_at ? new Date(a.scheduled_at).getTime() : 0
+        const tb = b.scheduled_at ? new Date(b.scheduled_at).getTime() : 0
+        return ta - tb
+      })
+  }, [groupedReservations, initialZone])
 
   // Stats
   const stats = useMemo(() => {
@@ -242,7 +329,8 @@ export function WalkerPanel({
     })
     const totalMin = inWeek.reduce((s, r) => s + durationMin(r.scheduled_at, r.scheduled_until), 0)
     const completados = inWeek.filter((r) => r.status === "completada").length
-    const gananciaSemana = inWeek.reduce((s, r) => s + walkerPayout(Number(r.price_mxn)), 0)
+    // Por semana: cada día del paquete aporta su parte proporcional
+    const gananciaSemana = inWeek.reduce((s, r) => s + Math.round(gananciaFor(r) / walksOf(r)), 0)
     return {
       paseosSemana: inWeek.length,
       horasTotales: (totalMin / 60).toFixed(1),
@@ -439,6 +527,11 @@ export function WalkerPanel({
                             Nuevo
                           </span>
                         )}
+                        {isMine && r.package_id && (r.package_total ?? 1) > 1 && (
+                          <span className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-bold text-muted-foreground">
+                            Paseo {r.package_index ?? 1} de {r.package_total}
+                          </span>
+                        )}
                       </div>
 
                       <div className="mt-3 grid grid-cols-1 gap-x-5 gap-y-1.5 text-sm text-muted-foreground sm:grid-cols-2">
@@ -450,7 +543,7 @@ export function WalkerPanel({
                           </span>
                         )}
                         {r.scheduled_at && (
-                          r.package_id && packageDates[r.package_id]?.length > 1 ? (
+                          !isMine && r.package_id && packageDates[r.package_id]?.length > 1 ? (
                             <div className="flex items-start gap-1.5">
                               <CalendarDays className="mt-0.5 h-4 w-4 shrink-0" />
                               <div>
@@ -479,7 +572,7 @@ export function WalkerPanel({
                         )}
                         <span className="flex items-center gap-1.5 font-bold text-primary">
                           <PawPrint className="h-4 w-4" />
-                          Ganancia: MX${walkerPayout(Number(r.price_mxn))}
+                          Ganancia: MX${gananciaFor(r)}{walksOf(r) > 1 ? " (paquete completo)" : ""}
                         </span>
                       </div>
 
@@ -574,7 +667,7 @@ export function WalkerPanel({
                 />
               )}
               <p className="text-xs text-muted-foreground">
-                Solo verás paseos disponibles en esta zona.
+                Los paseos de esta zona te aparecen primero en Disponibles.
               </p>
             </div>
 
@@ -631,10 +724,13 @@ export function WalkerPanel({
             setSelectedReservation(null)
           }}
           onUpdateStatus={(s) => {
+            // No adivinamos el estado: cerramos el modal y dejamos que la lista
+            // refleje el resultado real (soltar → buscando_paseador, o error)
             updateStatus(selectedReservation.id, s)
-            setSelectedReservation((r) => (r ? { ...r, status: s } : r))
+            setSelectedReservation(null)
           }}
           updating={updating === selectedReservation.id}
+          ganancia={gananciaFor(selectedReservation)}
         />
       )}
     </main>
@@ -659,7 +755,15 @@ function WalkerCalendar({
     d.setDate(d.getDate() + i)
     return d
   })
-  const hours = Array.from({ length: 15 }, (_, i) => i + 6) // 06:00 a 20:00
+  // Base 06:00-20:00, expandible si hay paseos fuera de ese horario
+  let hMin = 6, hMax = 20
+  ;[...myReservations, ...availableReservations].forEach((r) => {
+    if (!r.scheduled_at) return
+    const h = new Date(r.scheduled_at).getHours()
+    if (h < hMin) hMin = h
+    if (h > hMax) hMax = h
+  })
+  const hours = Array.from({ length: hMax - hMin + 1 }, (_, i) => i + hMin)
   const dayNames = ["LUN", "MAR", "MIÉ", "JUE", "VIE", "SÁB", "DOM"]
   const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6)
 
@@ -771,7 +875,7 @@ function FragmentRow({
 }
 
 function ReservationDetailModal({
-  reservation, ownerName, isMine, isAvailable, onClose, onAccept, onUpdateStatus, updating,
+  reservation, ownerName, isMine, isAvailable, onClose, onAccept, onUpdateStatus, updating, ganancia,
 }: {
   reservation: WalkerReservation
   ownerName: string | null
@@ -781,6 +885,7 @@ function ReservationDetailModal({
   onAccept: () => void
   onUpdateStatus: (s: string) => void
   updating: boolean
+  ganancia: number
 }) {
   const status = reservation.status
   return (
@@ -809,7 +914,7 @@ function ReservationDetailModal({
           {isMine && ownerName && <p><b>Dueño:</b> {ownerName}</p>}
           {reservation.notes && <p className="italic text-muted-foreground">{reservation.notes}</p>}
           {isMine && (
-            <p className="font-bold text-primary">Ganancia: MX${walkerPayout(Number(reservation.price_mxn))}</p>
+            <p className="font-bold text-primary">Ganancia: MX${ganancia}{(reservation.package_total ?? 1) > 1 ? " (paquete completo)" : ""}</p>
           )}
         </div>
 

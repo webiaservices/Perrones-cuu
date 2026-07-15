@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { LogoCircle } from "@/components/logo-circle"
 import { createClient } from "@/lib/supabase/client"
-import { STATUS_LABELS } from "@/lib/constants"
+import { STATUS_LABELS, ADMIN_SHARE, adminFeeFor, walkerPayoutFor } from "@/lib/constants"
 
 export type AdminReservation = {
   id: string
@@ -127,27 +127,33 @@ export function AdminPanel({
   ownerMap,
   walkerMap,
   allUsers = [],
-  initialAdminPct = 30,
+  initialAdminPct = null,
 }: {
   fullName: string | null
   email: string
   reservations: AdminReservation[]
   ownerMap: Record<string, { name: string | null; phone: string | null }>
   walkerMap: Record<string, { name: string | null }>
-  initialAdminPct?: number
+  initialAdminPct?: number | null
   allUsers?: AdminUser[]
 }) {
   const router = useRouter()
   const [reservations, setReservations] = useState(initial)
   const [users, setUsers] = useState(allUsers)
   const [view, setView] = useState<"tabla" | "calendario" | "usuarios">("tabla")
-  // Monto fijo (en pesos) que se queda el admin por cada paseo (default global). El resto es del paseador.
-  const [adminFee, setAdminFee] = useState(initialAdminPct)
+  // Reparto: default el admin se queda el 30% del precio. Editable en PESOS
+  // por paseo (admin_fee_mxn en la reserva). adminFee (global, en pesos) es el
+  // default que se estampa en los paseos que TÚ creas; null = usar 30%.
+  // MISMA fórmula que ve el paseador en su panel y sus correos (lib/constants).
+  const [adminFee, setAdminFee] = useState<number | null>(initialAdminPct)
   const [savingFee, setSavingFee] = useState(false)
-  const feeForReservation = (r: AdminReservation) => r.admin_fee_mxn ?? adminFee
-  const adminSharePerPaseo = (price: number, feeOverride?: number) => Math.min(feeOverride ?? adminFee, price)
-  const walkerSharePerPaseo = (price: number, feeOverride?: number) => Math.max(0, price - (feeOverride ?? adminFee))
-  const saveAdminFee = async (v: number) => {
+  const walksOf = (r: AdminReservation) => (r.package_total && r.package_total > 1 ? r.package_total : 1)
+  // Fee POR PASEO efectivo (para el prefill del editor inline)
+  const feeForReservation = (r: AdminReservation) =>
+    r.admin_fee_mxn ?? Math.round((effectivePrice(r) * ADMIN_SHARE) / walksOf(r))
+  const adminShareFor = (r: AdminReservation) => adminFeeFor(effectivePrice(r), r.admin_fee_mxn, walksOf(r))
+  const walkerShareFor = (r: AdminReservation) => walkerPayoutFor(effectivePrice(r), r.admin_fee_mxn, walksOf(r))
+  const saveAdminFee = async (v: number | null) => {
     setAdminFee(v)
     setSavingFee(true)
     const supabase = createClient()
@@ -237,12 +243,18 @@ export function AdminPanel({
         // Solo el primero lleva el precio total
         price_mxn: i === 0 ? newPaseo.price_mxn : 0,
         status: assignedNow ? "confirmada" : "buscando_paseador",
-        visibility: "public",
+        // Sin paseador = privado (pending_admin) como promete el modal: tú
+        // decides cuándo abrirlo con "Hacer público". Antes se publicaba y
+        // notificaba a todos los paseadores aunque eligieras "dejar privado".
+        visibility: assignedNow ? "public" : "pending_admin",
         notes: i === 0
           ? (newPaseo.notes || (clientMode === "manual" ? "Cliente manual (sin registro)" : "Creado por admin"))
           : `Paseo ${i + 1} de ${walks} del paquete "${newPaseo.plan_name}"`,
         scheduled_at: at.toISOString(),
         scheduled_until: until.toISOString(),
+        // Estampa tu comisión global (en pesos/paseo) si la tienes definida;
+        // null = se calcula 30% del precio automáticamente
+        admin_fee_mxn: adminFee,
         zone: newPaseo.zone,
         pickup_address: newPaseo.pickup_address,
         dog_name: newPaseo.dog_name,
@@ -287,21 +299,17 @@ export function AdminPanel({
       }
     }
 
-    // Notifica al admin (a si mismo si es admin creando) con detalles del paseo
-    if (firstRow) {
-      fetch("/api/notify-admin-nuevo-paseo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reservationId: firstRow.id }),
-      }).catch(() => {})
-
-      // Notifica a los paseadores de la zona
-      fetch("/api/notify-paseadores", {
+    // Si asignaste paseador directo, avísale (antes se quedaba sin enterarse
+    // a menos que abriera su panel)
+    if (assignedNow && firstRow) {
+      fetch("/api/notify-walker-assigned", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reservationId: firstRow.id }),
       }).catch(() => {})
     }
+    // Nota: ya NO se notifica a todos los paseadores aquí — el paseo queda
+    // privado (pending_admin) hasta que le des "Hacer público", y eso sí notifica.
   }
 
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -315,15 +323,20 @@ export function AdminPanel({
   const assignWalker = async (reservationId: string, walkerId: string) => {
     setAssigning(true)
     const supabase = createClient()
-    // Al asignar manual: queda confirmada + visible + con paseador en un solo update
-    const { error } = await supabase
+    const target = reservations.find((r) => r.id === reservationId)
+    // Al asignar manual: queda confirmada + visible + con paseador en un solo update.
+    // Para paquetes multi-día se asigna el PAQUETE COMPLETO (todos los días),
+    // no solo el paseo 1 — igual que cuando un paseador acepta.
+    const query = supabase
       .from("reservations")
       .update({
         status: "confirmada",
         walker_id: walkerId,
         visibility: "public", // ya no es privada, queda lista para el paseador
       })
-      .eq("id", reservationId)
+    const { error } = target?.package_id
+      ? await query.eq("package_id", target.package_id)
+      : await query.eq("id", reservationId)
     setAssigning(false)
     if (error) {
       alert(`Error: ${error.message}`)
@@ -331,7 +344,7 @@ export function AdminPanel({
     }
     setReservations((prev) =>
       prev.map((r) =>
-        r.id === reservationId
+        (target?.package_id ? r.package_id === target.package_id : r.id === reservationId)
           ? { ...r, walker_id: walkerId, status: "confirmada", visibility: "public" }
           : r,
       ),
@@ -353,9 +366,20 @@ export function AdminPanel({
 
   const makePublic = async (id: string) => {
     const supabase = createClient()
-    const { error } = await supabase.from("reservations").update({ visibility: "public" }).eq("id", id)
+    const target = reservations.find((r) => r.id === id)
+    // Paquetes: se abren completos (todas las fechas)
+    const query = supabase.from("reservations").update({ visibility: "public" })
+    const { error } = target?.package_id
+      ? await query.eq("package_id", target.package_id)
+      : await query.eq("id", id)
     if (error) return alert(error.message)
-    setReservations((prev) => prev.map((r) => (r.id === id ? { ...r, visibility: "public" } : r)))
+    setReservations((prev) =>
+      prev.map((r) =>
+        (target?.package_id ? r.package_id === target.package_id : r.id === id)
+          ? { ...r, visibility: "public" }
+          : r,
+      ),
+    )
     // Notifica a paseadores
     fetch("/api/notify-paseadores", {
       method: "POST",
@@ -465,16 +489,11 @@ export function AdminPanel({
     const totalRem = totalMin % 60
     // Solo cuenta el primero de cada paquete para no duplicar ingreso
     const uniqueForIncome = active.filter((r) => !r.package_id || (r.package_index ?? 1) === 1)
-    // Para paquetes, la cuota admin se cuenta por CADA paseo del paquete (no solo el primero)
-    const sumAdminForPackage = (r: AdminReservation) => {
-      const perPaseo = adminSharePerPaseo(r.price_mxn, feeForReservation(r))
-      const count = r.package_total && r.package_total > 1 ? r.package_total : 1
-      return perPaseo * count
-    }
-    const totalIngresos = uniqueForIncome.reduce((sum, r) => sum + sumAdminForPackage(r), 0)
+    // MISMA fórmula que la columna Reparto y que el panel del paseador
+    const totalIngresos = uniqueForIncome.reduce((sum, r) => sum + adminShareFor(r), 0)
     const ingresosCompletados = uniqueForIncome
       .filter((r) => r.status === "completada")
-      .reduce((sum, r) => sum + sumAdminForPackage(r), 0)
+      .reduce((sum, r) => sum + adminShareFor(r), 0)
     const tasa = active.length > 0 ? Math.round((completados / active.length) * 100) : null
     return { agendados, completados, totalMin, totalH, totalRem, totalIngresos, ingresosCompletados, tasa }
   }, [weekReservations, packagePrices, adminFee])
@@ -500,10 +519,11 @@ export function AdminPanel({
     })
   }, [reservations, search, statusFilter, walkerMap, ownerMap])
 
-  // Guarda el admin_fee_mxn en una reservación específica (o el paquete entero)
+  // Guarda el admin_fee_mxn en una reservación específica (o el paquete entero).
+  // value = null → borra el override y vuelve al 30% automático.
   const [editingFeeId, setEditingFeeId] = useState<string | null>(null)
-  const [editingFeeValue, setEditingFeeValue] = useState<number>(0)
-  const saveReservationFee = async (r: AdminReservation, value: number) => {
+  const [editingFeeValue, setEditingFeeValue] = useState<number | null>(null)
+  const saveReservationFee = async (r: AdminReservation, value: number | null) => {
     const supabase = createClient()
     const query = supabase.from("reservations").update({ admin_fee_mxn: value })
     const { error } = r.package_id ? await query.eq("package_id", r.package_id) : await query.eq("id", r.id)
@@ -526,17 +546,40 @@ export function AdminPanel({
     setReservations((prev) => prev.filter((x) => (r?.package_id ? x.package_id !== r.package_id : x.id !== id)))
   }
 
-  // Cambio de estado
+  // Cambio de estado. Para paquetes multi-día "cancelada" aplica a TODO el
+  // paquete (la tabla solo muestra el paseo 1; si no, los días 2-N quedarían
+  // vivos e invisibles). Completada/en_curso sí son por paseo individual.
   const updateStatus = async (id: string, status: string) => {
     setUpdating(id)
     const supabase = createClient()
-    const { error } = await supabase.from("reservations").update({ status }).eq("id", id)
+    const r = reservations.find((x) => x.id === id)
+    const wholePackage = !!r?.package_id && status === "cancelada"
+    const query = supabase.from("reservations").update({ status })
+    // Al cancelar un paquete NO se tocan los días ya completados (conservan
+    // su registro e ingreso); solo se cancelan los que aún no ocurrieron
+    const { error } = wholePackage
+      ? await query.eq("package_id", r!.package_id!).neq("status", "completada")
+      : await query.eq("id", id)
     setUpdating(null)
     if (!error) {
-      setReservations((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)))
+      setReservations((prev) =>
+        prev.map((x) =>
+          (wholePackage ? x.package_id === r!.package_id && x.status !== "completada" : x.id === id)
+            ? { ...x, status }
+            : x,
+        ),
+      )
       // Si se marca como completada, mandamos recordatorio de pago al dueño
       if (status === "completada") {
         fetch("/api/notify-pago", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reservationId: id }),
+        }).catch(() => {})
+      }
+      // Si se cancela y hay paseador asignado, avisarle (antes nadie se enteraba)
+      if (status === "cancelada" && r?.walker_id) {
+        fetch("/api/notify-paseador-cancelado", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reservationId: id }),
@@ -547,9 +590,18 @@ export function AdminPanel({
 
   // Export CSV
   const exportCSV = () => {
+    // Expande los paquetes: una fila por CADA paseo (la tabla en pantalla solo
+    // muestra el día 1, pero el registro/Excel debe traer todos los días)
+    const expanded = filtered.flatMap((r) =>
+      r.package_id
+        ? reservations
+            .filter((x) => x.package_id === r.package_id)
+            .sort((a, b) => (a.package_index ?? 1) - (b.package_index ?? 1))
+        : [r],
+    )
     const rows = [
-      ["Fecha", "Hora", "Perro", "Tamaño", "Paseador", "Zona", "Duración (min)", "Precio MXN", "Estado", "Dueño"],
-      ...filtered.map((r) => [
+      ["Fecha", "Hora", "Perro", "Tamaño", "Paseador", "Zona", "Duración (min)", "Precio MXN", "Paquete", "Estado", "Dueño"],
+      ...expanded.map((r) => [
         r.scheduled_at ? new Date(r.scheduled_at).toLocaleDateString("es-MX") : "",
         r.scheduled_at ? fmtTime(r.scheduled_at) : "",
         r.dog_name ?? "",
@@ -558,12 +610,14 @@ export function AdminPanel({
         r.zone ?? "",
         String(durationMin(r.scheduled_at, r.scheduled_until)),
         String(r.price_mxn),
+        r.package_id ? `${r.package_index ?? 1} de ${r.package_total ?? 1}` : "",
         STATUS_LABELS[r.status] ?? r.status,
         r.manual_client_name ?? ownerMap[r.user_id]?.name ?? "",
       ]),
     ]
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n")
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    // BOM UTF-8 para que Excel en Windows no muestre "DuraciÃ³n"/"TamaÃ±o"
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
@@ -577,7 +631,19 @@ export function AdminPanel({
 
   // Calendario: días de la semana
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
-  const hours = Array.from({ length: 15 }, (_, i) => i + 6) // 06:00 a 20:00
+  // Rango de horas dinámico: base 06:00-20:00 pero se expande si hay paseos
+  // fuera de ese horario (antes un paseo de 21:00 era invisible en el calendario)
+  const hourBounds = useMemo(() => {
+    let min = 6, max = 20
+    reservations.forEach((r) => {
+      if (!r.scheduled_at) return
+      const h = new Date(r.scheduled_at).getHours()
+      if (h < min) min = h
+      if (h > max) max = h
+    })
+    return { min, max }
+  }, [reservations])
+  const hours = Array.from({ length: hourBounds.max - hourBounds.min + 1 }, (_, i) => i + hourBounds.min)
   const dayNames = ["LUN", "MAR", "MIÉ", "JUE", "VIE", "SÁB", "DOM"]
 
   const reservationsByDay = useMemo(() => {
@@ -670,7 +736,7 @@ export function AdminPanel({
             />
             <StatCard
               icon={<DollarSign className="h-5 w-5 text-primary" />}
-              title={`Mi ingreso ($${adminFee}/paseo)`}
+              title="Mi ingreso"
               value={`$${stats.totalIngresos.toLocaleString()}`}
               sub={`$${stats.ingresosCompletados.toLocaleString()} ya completados · solo tu parte`}
             />
@@ -696,11 +762,12 @@ export function AdminPanel({
             <Input
               type="number"
               min={0}
-              value={adminFee}
-              onChange={(e) => setAdminFee(Number(e.target.value))}
+              value={adminFee ?? ""}
+              placeholder="auto (30%)"
+              onChange={(e) => setAdminFee(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))}
               className="w-24"
             />
-            <span className="text-xs font-bold text-muted-foreground">MXN</span>
+            <span className="text-xs font-bold text-muted-foreground">MXN · vacío = 30% del precio</span>
             <button
               onClick={() => saveAdminFee(adminFee)}
               disabled={savingFee}
@@ -738,7 +805,7 @@ export function AdminPanel({
             }`}
           >
             <Users className="h-4 w-4" />
-            Usuarios <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-xs">{allUsers.length}</span>
+            Usuarios <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-xs">{users.length}</span>
           </button>
         </div>
 
@@ -871,8 +938,9 @@ export function AdminPanel({
                                 type="number"
                                 min={0}
                                 autoFocus
-                                value={editingFeeValue}
-                                onChange={(e) => setEditingFeeValue(Math.max(0, parseInt(e.target.value) || 0))}
+                                placeholder="auto"
+                                value={editingFeeValue ?? ""}
+                                onChange={(e) => setEditingFeeValue(e.target.value === "" ? null : Math.max(0, parseInt(e.target.value) || 0))}
                                 onBlur={() => saveReservationFee(r, editingFeeValue)}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") saveReservationFee(r, editingFeeValue)
@@ -880,23 +948,26 @@ export function AdminPanel({
                                 }}
                                 className="w-16 rounded border border-primary/40 bg-white px-1.5 py-0.5 text-xs font-bold text-primary focus:outline-none focus:ring-1 focus:ring-primary"
                               />
-                              <span className="text-[10px] text-muted-foreground">×{r.package_total && r.package_total > 1 ? r.package_total : 1}</span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {editingFeeValue === null ? "30% auto" : `×${r.package_total && r.package_total > 1 ? r.package_total : 1}`}
+                              </span>
                             </div>
                           ) : (
                             <button
                               type="button"
                               onClick={() => {
                                 setEditingFeeId(r.id)
-                                setEditingFeeValue(feeForReservation(r))
+                                // Prefill: el override si existe; vacío (auto 30%) si no
+                                setEditingFeeValue(r.admin_fee_mxn ?? null)
                               }}
                               className="text-left hover:opacity-70"
-                              title="Click para editar la ganancia del admin"
+                              title="Click para editar tu ganancia en pesos (vacío = 30% automático)"
                             >
                               <div className="font-bold text-primary underline decoration-dotted underline-offset-2">
-                                Admin: ${adminSharePerPaseo(effectivePrice(r), feeForReservation(r)).toLocaleString()}
+                                Admin: ${adminShareFor(r).toLocaleString()}
                               </div>
                               <div className="text-muted-foreground">
-                                Paseador: ${walkerSharePerPaseo(effectivePrice(r), feeForReservation(r)).toLocaleString()}
+                                Paseador: ${walkerShareFor(r).toLocaleString()}
                               </div>
                             </button>
                           )}
@@ -1035,13 +1106,13 @@ export function AdminPanel({
               <h2 className="font-display text-2xl font-extrabold tracking-tight">Usuarios</h2>
               <div className="flex gap-2 text-sm">
                 <span className="flex items-center gap-1.5 rounded-full bg-accent/40 px-3 py-1 font-bold">
-                  <Heart className="h-4 w-4" /> {allUsers.filter((u) => u.role === "dueno").length} Dueños
+                  <Heart className="h-4 w-4" /> {users.filter((u) => u.role === "dueno").length} Dueños
                 </span>
                 <span className="flex items-center gap-1.5 rounded-full bg-primary/15 px-3 py-1 font-bold text-primary">
-                  <Footprints className="h-4 w-4" /> {allUsers.filter((u) => u.role === "paseador").length} Paseadores
+                  <Footprints className="h-4 w-4" /> {users.filter((u) => u.role === "paseador").length} Paseadores
                 </span>
                 <span className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1 font-bold">
-                  <ShieldCheck className="h-4 w-4" /> {allUsers.filter((u) => u.role === "admin").length} Admins
+                  <ShieldCheck className="h-4 w-4" /> {users.filter((u) => u.role === "admin").length} Admins
                 </span>
               </div>
             </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { BRAND, walkerPayout } from "@/lib/constants"
+import { BRAND, walkerPayoutFor } from "@/lib/constants"
+import { getCaller } from "@/lib/api-auth"
 
 /**
  * Notifica al admin cuando un paseador acepta un paseo público.
@@ -21,11 +22,18 @@ export async function POST(req: NextRequest) {
     // Buscar la reserva con info del paseo
     const { data: r } = await admin
       .from("reservations")
-      .select("id, walker_id, user_id, dog_name, dog_size, scheduled_at, zone, pickup_address, price_mxn, plan_name, manual_client_name, manual_client_phone, package_id, package_total")
+      .select("id, walker_id, user_id, dog_name, dog_size, scheduled_at, zone, pickup_address, price_mxn, plan_name, manual_client_name, manual_client_phone, package_id, package_total, admin_fee_mxn")
       .eq("id", reservationId)
       .single()
 
     if (!r || !r.walker_id) return NextResponse.json({ skipped: true, reason: "sin walker" })
+
+    // Solo el paseador que aceptó (o un admin) puede disparar este correo
+    const caller = await getCaller()
+    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    if (!caller.isAdmin && r.walker_id !== caller.id) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 403 })
+    }
 
     // Buscar info del paseador
     const { data: walker } = await admin
@@ -70,7 +78,8 @@ export async function POST(req: NextRequest) {
     const when = r.scheduled_at
       ? new Date(r.scheduled_at).toLocaleString("es-MX", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "America/Chihuahua" })
       : "Por confirmar"
-    const ganancia = walkerPayout(Number(r.price_mxn))
+    // Misma fórmula que los paneles: precio − comisión admin (30% default o fee en pesos)
+    const ganancia = walkerPayoutFor(Number(r.price_mxn), r.admin_fee_mxn, r.package_total ?? 1)
     const edad = walker?.birth_date
       ? Math.floor((Date.now() - new Date(walker.birth_date).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
       : null

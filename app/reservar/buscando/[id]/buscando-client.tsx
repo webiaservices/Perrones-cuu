@@ -54,6 +54,10 @@ export function BuscandoClient({ reservation: initial }: { reservation: Reservat
 
   const confirmed = reservation.status === "confirmada" || reservation.status === "en_curso"
   const unassigned = reservation.status === "sin_asignar"
+  // Estados finales: antes caían al spinner de "enlazándote…" para siempre
+  const cancelled = reservation.status === "cancelada"
+  const completed = reservation.status === "completada"
+  const searching = !confirmed && !unassigned && !cancelled && !completed
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -63,11 +67,11 @@ export function BuscandoClient({ reservation: initial }: { reservation: Reservat
         <div className="mx-auto max-w-xl">
           <div className="rounded-3xl border border-border bg-card p-8 text-center shadow-sm md:p-12">
             <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center">
-              {confirmed ? (
+              {confirmed || completed ? (
                 <div className="flex h-24 w-24 items-center justify-center rounded-full bg-primary/15">
                   <CheckCircle2 className="h-12 w-12 text-primary" />
                 </div>
-              ) : unassigned ? (
+              ) : unassigned || cancelled ? (
                 <div className="flex h-24 w-24 items-center justify-center rounded-full bg-destructive/15">
                   <AlertTriangle className="h-12 w-12 text-destructive" />
                 </div>
@@ -103,7 +107,38 @@ export function BuscandoClient({ reservation: initial }: { reservation: Reservat
               </>
             )}
 
-            {!confirmed && !unassigned && (
+            {cancelled && (
+              <>
+                <h1 className="text-balance text-3xl font-extrabold tracking-tight">Este paseo fue cancelado</h1>
+                <p className="mt-3 text-pretty leading-relaxed text-muted-foreground">
+                  Esta reserva ya no está activa. Si no fuiste tú quien la canceló, escríbenos por WhatsApp.
+                </p>
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+                  <Button asChild className="rounded-full font-bold">
+                    <Link href="/reservar">Agendar otro paseo <ArrowRight className="h-4 w-4" /></Link>
+                  </Button>
+                  <Button asChild variant="ghost" className="rounded-full">
+                    <Link href="/panel">Ir a mi panel</Link>
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {completed && (
+              <>
+                <h1 className="text-balance text-3xl font-extrabold tracking-tight">¡Este paseo ya se completó!</h1>
+                <p className="mt-3 text-pretty leading-relaxed text-muted-foreground">
+                  Tu perrito ya tuvo su paseo. Puedes ver los detalles y dejar una reseña desde tu panel.
+                </p>
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+                  <Button asChild className="rounded-full font-bold">
+                    <Link href="/panel">Ir a mi panel <ArrowRight className="h-4 w-4" /></Link>
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {searching && (
               <>
                 <h1 className="text-balance text-3xl font-extrabold tracking-tight">
                   Estamos enlazándote con un paseador…

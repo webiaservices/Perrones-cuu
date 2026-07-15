@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { getCaller } from "@/lib/api-auth"
 import { BRAND } from "@/lib/constants"
 import { sendWhatsAppTemplate } from "@/lib/whatsapp"
 
@@ -20,6 +21,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "reservationId y kind requeridos" }, { status: 400 })
     }
 
+    const caller = await getCaller()
+    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+
     const admin = createAdminClient()
 
     const { data: reservation, error: resErr } = await admin
@@ -30,6 +34,11 @@ export async function POST(req: NextRequest) {
 
     if (resErr || !reservation) {
       return NextResponse.json({ error: "Reserva no encontrada" }, { status: 404 })
+    }
+
+    // Solo el dueño, el paseador asignado o un admin pueden disparar este correo
+    if (!caller.isAdmin && reservation.user_id !== caller.id && reservation.walker_id !== caller.id) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 403 })
     }
 
     // Email del dueño

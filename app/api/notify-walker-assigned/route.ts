@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { BRAND, walkerPayout } from "@/lib/constants"
+import { BRAND, walkerPayoutFor } from "@/lib/constants"
 import { sendWhatsAppTemplate } from "@/lib/whatsapp"
+import { getCaller } from "@/lib/api-auth"
 
 /**
  * Notifica a un paseador específico cuando el admin lo asigna directamente a un paseo.
@@ -18,11 +19,15 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient()
     const { data: r } = await admin
       .from("reservations")
-      .select("id, walker_id, dog_name, dog_size, scheduled_at, zone, price_mxn, pickup_address")
+      .select("id, walker_id, dog_name, dog_size, scheduled_at, zone, price_mxn, pickup_address, package_id, package_total, admin_fee_mxn")
       .eq("id", reservationId)
       .single()
 
     if (!r || !r.walker_id) return NextResponse.json({ skipped: true })
+
+    // Solo el admin asigna paseadores manualmente
+    const caller = await getCaller()
+    if (!caller?.isAdmin) return NextResponse.json({ error: "No autorizado" }, { status: 403 })
 
     const { data: u } = await admin.auth.admin.getUserById(r.walker_id)
     const email = u?.user?.email
@@ -37,7 +42,8 @@ export async function POST(req: NextRequest) {
     const when = r.scheduled_at
       ? new Date(r.scheduled_at).toLocaleString("es-MX", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "America/Chihuahua" })
       : "Por confirmar"
-    const ganancia = walkerPayout(Number(r.price_mxn))
+    // Misma fórmula que los paneles: precio − comisión admin (30% default o fee en pesos)
+    const ganancia = walkerPayoutFor(Number(r.price_mxn), r.admin_fee_mxn, r.package_total ?? 1)
 
     await fetch("https://api.resend.com/emails", {
       method: "POST",

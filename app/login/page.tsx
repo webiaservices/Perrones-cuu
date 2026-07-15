@@ -5,6 +5,7 @@ import { Suspense, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
+import { traducirErrorAuth } from "@/lib/auth-errors"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -31,7 +32,7 @@ function LoginForm() {
       router.push(safeRedirect ?? "/panel")
       router.refresh()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Correo o contraseña incorrectos")
+      setError(err instanceof Error ? traducirErrorAuth(err.message) : "Correo o contraseña incorrectos.")
     } finally {
       setLoading(false)
     }

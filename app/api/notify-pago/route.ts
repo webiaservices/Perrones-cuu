@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { BRAND, PAYMENT_ACCOUNT } from "@/lib/constants"
 import { sendWhatsAppTemplate } from "@/lib/whatsapp"
+import { getCaller } from "@/lib/api-auth"
 
 /**
  * Manda recordatorio de pago al dueño cuando un paseo se marca como completado.
@@ -17,11 +18,50 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient()
     const { data: r } = await admin
       .from("reservations")
-      .select("id, user_id, dog_name, price_mxn, plan_name, payment_status, payment_reminded_at")
+      .select("id, user_id, walker_id, status, dog_name, price_mxn, plan_name, payment_status, payment_reminded_at, manual_client_name, package_id, package_index, package_total")
       .eq("id", reservationId)
       .single()
 
     if (!r) return NextResponse.json({ error: "Reserva no encontrada" }, { status: 404 })
+
+    // Paquetes: el precio total vive en el paseo 1. Los días 2..N traen $0,
+    // así que el cobro se hace UNA sola vez con el precio del paseo 1 (si no,
+    // el cliente recibiría "transfiere MX$0" al completar cada día).
+    if (r.package_id) {
+      const { data: first } = await admin
+        .from("reservations")
+        .select("id, price_mxn, payment_status, payment_reminded_at")
+        .eq("package_id", r.package_id)
+        .eq("package_index", 1)
+        .single()
+      if (first && first.id !== r.id) {
+        // Redirige el cobro al paseo 1 (el que carga el precio)
+        r.id = first.id
+        r.price_mxn = first.price_mxn
+        r.payment_status = first.payment_status
+        r.payment_reminded_at = first.payment_reminded_at
+      }
+    }
+    // Si aun así el precio es 0, no tiene sentido pedir transferencia
+    if (Number(r.price_mxn) <= 0) {
+      return NextResponse.json({ skipped: true, reason: "sin monto a cobrar" })
+    }
+
+    // Solo el paseador asignado o un admin, y solo si el paseo YA se completó.
+    // Antes cualquiera podía mandar el cobro anticipado y quemar el recordatorio real.
+    const caller = await getCaller()
+    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    if (!caller.isAdmin && r.walker_id !== caller.id) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 403 })
+    }
+    if (r.status !== "completada") {
+      return NextResponse.json({ skipped: true, reason: "el paseo no está completado" })
+    }
+    // Clientes manuales (sin cuenta): el user_id es el del admin — no tiene
+    // sentido mandarle el cobro al propio admin; ese cobro se hace en persona
+    if (r.manual_client_name) {
+      return NextResponse.json({ skipped: true, reason: "cliente manual: cobra en persona/WhatsApp" })
+    }
     if (r.payment_status === "pagado") return NextResponse.json({ skipped: true, reason: "ya pagado" })
     if (r.payment_reminded_at) return NextResponse.json({ skipped: true, reason: "ya se le recordó" })
 
@@ -91,8 +131,9 @@ export async function POST(req: NextRequest) {
       ])
     }
 
-    // Marcar como recordatorio enviado
-    await admin.from("reservations").update({ payment_reminded_at: new Date().toISOString() }).eq("id", reservationId)
+    // Marcar como recordatorio enviado (en el paseo que carga el precio,
+    // que para paquetes es el paseo 1 al que redirigimos arriba)
+    await admin.from("reservations").update({ payment_reminded_at: new Date().toISOString() }).eq("id", r.id)
 
     return NextResponse.json({ ok: true, whatsapp: wa })
   } catch (e: unknown) {

@@ -27,7 +27,7 @@ export default async function PanelPage() {
   const { data: reservations } = await supabase
     .from("reservations")
     .select(
-      "id, plan_name, dogs_count, price_mxn, status, notes, created_at, user_id, scheduled_at, scheduled_until, zone, pickup_address, dog_name, dog_size, walker_id, visibility, payment_status, package_id, package_index, package_total, manual_client_name, manual_client_phone",
+      "id, plan_name, dogs_count, price_mxn, status, notes, created_at, user_id, scheduled_at, scheduled_until, zone, pickup_address, dog_name, dog_size, walker_id, visibility, payment_status, package_id, package_index, package_total, manual_client_name, manual_client_phone, admin_fee_mxn",
     )
     .order("created_at", { ascending: false })
 
@@ -60,7 +60,7 @@ export default async function PanelPage() {
         ownerMap={ownerMap}
         walkerMap={walkerMap}
         allUsers={allUsers ?? []}
-        initialAdminPct={(profile as { commission_pct?: number })?.commission_pct ?? 30}
+        initialAdminPct={(profile as { commission_pct?: number | null })?.commission_pct ?? null}
       />
     )
   }
