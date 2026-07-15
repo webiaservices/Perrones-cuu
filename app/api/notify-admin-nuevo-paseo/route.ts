@@ -18,6 +18,10 @@ export async function POST(req: NextRequest) {
     // kind "paseador_solto": un paseador soltó un paseo que ya había aceptado
     const solto = kind === "paseador_solto"
 
+    // Auth PRIMERO (antes de tocar la base)
+    const caller = await getCaller()
+    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+
     const admin = createAdminClient()
 
     const { data: r } = await admin
@@ -29,8 +33,6 @@ export async function POST(req: NextRequest) {
     if (!r) return NextResponse.json({ skipped: true, reason: "reserva no encontrada" })
 
     // Dueño de la reserva, cualquier paseador (que soltó un paseo) o admin
-    const caller = await getCaller()
-    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
     if (!caller.isAdmin && r.user_id !== caller.id && caller.role !== "paseador") {
       return NextResponse.json({ error: "No autorizado" }, { status: 403 })
     }

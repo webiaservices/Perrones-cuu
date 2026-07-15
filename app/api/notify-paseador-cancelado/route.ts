@@ -14,6 +14,10 @@ export async function POST(req: NextRequest) {
     const { reservationId } = await req.json()
     if (!reservationId) return NextResponse.json({ error: "reservationId requerido" }, { status: 400 })
 
+    // Auth PRIMERO (antes de tocar la base)
+    const caller = await getCaller()
+    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+
     const admin = createAdminClient()
     const { data: r } = await admin
       .from("reservations")
@@ -24,8 +28,6 @@ export async function POST(req: NextRequest) {
     if (!r || !r.walker_id) return NextResponse.json({ skipped: true })
 
     // Solo el dueño de la reserva o un admin pueden disparar este correo
-    const caller = await getCaller()
-    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
     if (!caller.isAdmin && r.user_id !== caller.id) {
       return NextResponse.json({ error: "No autorizado" }, { status: 403 })
     }

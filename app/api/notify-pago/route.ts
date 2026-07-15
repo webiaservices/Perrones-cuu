@@ -15,6 +15,10 @@ export async function POST(req: NextRequest) {
     const { reservationId } = await req.json()
     if (!reservationId) return NextResponse.json({ error: "reservationId requerido" }, { status: 400 })
 
+    // Auth PRIMERO (antes de tocar la base)
+    const caller = await getCaller()
+    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+
     const admin = createAdminClient()
     const { data: r } = await admin
       .from("reservations")
@@ -49,8 +53,6 @@ export async function POST(req: NextRequest) {
 
     // Solo el paseador asignado o un admin, y solo si el paseo YA se completó.
     // Antes cualquiera podía mandar el cobro anticipado y quemar el recordatorio real.
-    const caller = await getCaller()
-    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
     if (!caller.isAdmin && r.walker_id !== caller.id) {
       return NextResponse.json({ error: "No autorizado" }, { status: 403 })
     }

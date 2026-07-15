@@ -17,6 +17,10 @@ export async function POST(req: NextRequest) {
     const { reservationId } = await req.json()
     if (!reservationId) return NextResponse.json({ error: "reservationId requerido" }, { status: 400 })
 
+    // Auth PRIMERO (antes de tocar la base)
+    const caller = await getCaller()
+    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+
     const admin = createAdminClient()
 
     // Buscar la reserva con info del paseo
@@ -29,8 +33,6 @@ export async function POST(req: NextRequest) {
     if (!r || !r.walker_id) return NextResponse.json({ skipped: true, reason: "sin walker" })
 
     // Solo el paseador que aceptó (o un admin) puede disparar este correo
-    const caller = await getCaller()
-    if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 })
     if (!caller.isAdmin && r.walker_id !== caller.id) {
       return NextResponse.json({ error: "No autorizado" }, { status: 403 })
     }
