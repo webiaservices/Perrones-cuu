@@ -63,8 +63,8 @@ async function getRealReviews() {
     const admin = createAdminClient()
     const { data } = await admin
       .from("reviews")
-      .select("rating, comment, owner_id, profiles:owner_id(full_name), reservations:reservation_id(dog_name)")
-      .gte("rating", 4)
+      .select("rating, comment, reviewer_name, dog_name, profiles:owner_id(full_name), reservations:reservation_id(dog_name)")
+      .eq("approved", true) // solo las que el admin ya aprobó
       .not("comment", "is", null)
       .order("created_at", { ascending: false })
       .limit(3)
@@ -75,8 +75,9 @@ async function getRealReviews() {
         const reservation = r.reservations as unknown as { dog_name: string | null } | null
         return {
           text: r.comment ?? "",
-          name: profile?.full_name ?? "Cliente",
-          dog: reservation?.dog_name ?? "",
+          // nombre/perro escritos en la reseña; si no, del perfil/paseo
+          name: (r.reviewer_name as string | null) ?? profile?.full_name ?? "Cliente",
+          dog: (r.dog_name as string | null) ?? reservation?.dog_name ?? "",
         }
       })
   } catch {
@@ -305,6 +306,12 @@ export default async function HomePage() {
                   </div>
                 </Reveal>
               ))}
+            </div>
+            <div className="mt-10 text-center">
+              <p className="mb-3 text-sm text-muted-foreground">¿Ya paseaste con nosotros?</p>
+              <Button asChild variant="outline" className="rounded-full font-bold">
+                <Link href="/opinar">Deja tu reseña ⭐</Link>
+              </Button>
             </div>
           </div>
         </section>

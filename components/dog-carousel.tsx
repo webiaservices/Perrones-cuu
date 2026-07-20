@@ -1,14 +1,14 @@
 "use client"
 
 const DOGS = [
-  { src: "/dogs/dog1.png", name: "Toby", breed: "Golden Retriever" },
-  { src: "/dogs/dog2.png", name: "Nala", breed: "Chihuahua" },
-  { src: "/dogs/dog3.png", name: "Rocky", breed: "Labrador" },
-  { src: "/dogs/dog4.png", name: "Lola", breed: "Bulldog Francés" },
-  { src: "/dogs/dog5.png", name: "Max", breed: "Border Collie" },
-  { src: "/dogs/dog6.png", name: "Coco", breed: "Beagle" },
-  { src: "/dogs/dog7.png", name: "Luna", breed: "Pastor Australiano" },
-  { src: "/dogs/dog8.png", name: "Pelusa", breed: "Corgi" },
+  { src: "/dogs/dog1.jpg", name: "Toby", breed: "Golden Retriever" },
+  { src: "/dogs/dog2.jpg", name: "Nala", breed: "Chihuahua" },
+  { src: "/dogs/dog3.jpg", name: "Rocky", breed: "Labrador" },
+  { src: "/dogs/dog4.jpg", name: "Lola", breed: "Bulldog Francés" },
+  { src: "/dogs/dog5.jpg", name: "Max", breed: "Border Collie" },
+  { src: "/dogs/dog6.jpg", name: "Coco", breed: "Beagle" },
+  { src: "/dogs/dog7.jpg", name: "Luna", breed: "Pastor Australiano" },
+  { src: "/dogs/dog8.jpg", name: "Pelusa", breed: "Corgi" },
 ]
 
 export function DogCarousel() {
@@ -40,7 +40,8 @@ export function DogCarousel() {
                 src={dog.src || "/placeholder.svg"}
                 alt={`${dog.name}, un ${dog.breed} feliz tras su paseo`}
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                crossOrigin="anonymous"
+                loading="lazy"
+                decoding="async"
               />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-foreground/85 to-transparent p-4">
                 <p className="text-lg font-extrabold leading-tight text-background">{dog.name}</p>

@@ -19,6 +19,7 @@ import {
   Heart,
   Footprints,
   ShieldCheck,
+  Star,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -120,6 +121,16 @@ export type AdminUser = {
   created_at: string
 }
 
+type AdminReview = {
+  id: string
+  rating: number
+  comment: string | null
+  approved: boolean
+  created_at: string
+  name: string
+  dog: string
+}
+
 export function AdminPanel({
   fullName,
   email,
@@ -127,6 +138,7 @@ export function AdminPanel({
   ownerMap,
   walkerMap,
   allUsers = [],
+  reviews: initialReviews = [],
   initialAdminPct = null,
 }: {
   fullName: string | null
@@ -136,11 +148,13 @@ export function AdminPanel({
   walkerMap: Record<string, { name: string | null }>
   initialAdminPct?: number | null
   allUsers?: AdminUser[]
+  reviews?: AdminReview[]
 }) {
   const router = useRouter()
   const [reservations, setReservations] = useState(initial)
   const [users, setUsers] = useState(allUsers)
-  const [view, setView] = useState<"tabla" | "calendario" | "usuarios">("tabla")
+  const [reviews, setReviews] = useState(initialReviews)
+  const [view, setView] = useState<"tabla" | "calendario" | "usuarios" | "resenas">("tabla")
   // Reparto: default el admin se queda el 30% del precio. Editable en PESOS
   // por paseo (admin_fee_mxn en la reserva). adminFee (global, en pesos) es el
   // default que se estampa en los paseos que TÚ creas; null = usar 30%.
@@ -534,6 +548,30 @@ export function AdminPanel({
     setEditingFeeId(null)
   }
 
+  // Reseñas: pendientes (por moderar) primero
+  const pendingReviews = useMemo(() => reviews.filter((r) => !r.approved), [reviews])
+  const approvedReviews = useMemo(() => reviews.filter((r) => r.approved), [reviews])
+
+  const approveReview = async (id: string) => {
+    const supabase = createClient()
+    const { error } = await supabase.from("reviews").update({ approved: true }).eq("id", id)
+    if (error) { alert(`Error: ${error.message}`); return }
+    setReviews((prev) => prev.map((r) => (r.id === id ? { ...r, approved: true } : r)))
+  }
+  const unapproveReview = async (id: string) => {
+    const supabase = createClient()
+    const { error } = await supabase.from("reviews").update({ approved: false }).eq("id", id)
+    if (error) { alert(`Error: ${error.message}`); return }
+    setReviews((prev) => prev.map((r) => (r.id === id ? { ...r, approved: false } : r)))
+  }
+  const deleteReview = async (id: string) => {
+    if (!confirm("¿Borrar esta reseña definitivamente?")) return
+    const supabase = createClient()
+    const { error } = await supabase.from("reviews").delete().eq("id", id)
+    if (error) { alert(`Error: ${error.message}`); return }
+    setReviews((prev) => prev.filter((r) => r.id !== id))
+  }
+
   // Borrar paseo (cancelado o cualquier estado, solo admin)
   const deleteReservation = async (id: string) => {
     const r = reservations.find((x) => x.id === id)
@@ -806,6 +844,18 @@ export function AdminPanel({
           >
             <Users className="h-4 w-4" />
             Usuarios <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-xs">{users.length}</span>
+          </button>
+          <button
+            onClick={() => setView("resenas")}
+            className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-all ${
+              view === "resenas" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <Star className="h-4 w-4" />
+            Reseñas
+            {pendingReviews.length > 0 && (
+              <span className="rounded-full bg-amber-400 px-2 py-0.5 text-xs text-amber-950">{pendingReviews.length}</span>
+            )}
           </button>
         </div>
 
@@ -1183,6 +1233,49 @@ export function AdminPanel({
             </div>
           </section>
         )}
+
+        {/* Vista reseñas — moderación */}
+        {view === "resenas" && (
+          <section className="mt-6 space-y-6">
+            {/* Pendientes por aprobar */}
+            <div className="rounded-3xl border border-amber-300 bg-amber-50/60 p-6 shadow-sm">
+              <h2 className="font-display text-2xl font-extrabold tracking-tight">
+                Por aprobar {pendingReviews.length > 0 && <span className="text-amber-600">({pendingReviews.length})</span>}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Estas reseñas NO aparecen en la página hasta que las apruebes.
+              </p>
+              {pendingReviews.length === 0 ? (
+                <p className="mt-6 text-center text-sm text-muted-foreground">No hay reseñas pendientes. 🎉</p>
+              ) : (
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  {pendingReviews.map((rv) => (
+                    <ReviewCard key={rv.id} rv={rv} onApprove={() => approveReview(rv.id)} onDelete={() => deleteReview(rv.id)} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Ya publicadas */}
+            <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
+              <h2 className="font-display text-2xl font-extrabold tracking-tight">
+                Publicadas {approvedReviews.length > 0 && <span className="text-muted-foreground">({approvedReviews.length})</span>}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Las 3 más recientes se muestran en la página de inicio.
+              </p>
+              {approvedReviews.length === 0 ? (
+                <p className="mt-6 text-center text-sm text-muted-foreground">Aún no hay reseñas publicadas.</p>
+              ) : (
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  {approvedReviews.map((rv) => (
+                    <ReviewCard key={rv.id} rv={rv} onUnapprove={() => unapproveReview(rv.id)} onDelete={() => deleteReview(rv.id)} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
       </div>
 
       {/* Modal crear paseo en nombre del cliente */}
@@ -1414,6 +1507,43 @@ function StatCard({ icon, title, value, sub }: { icon: React.ReactNode; title: s
           <p className="mt-1 font-display text-3xl font-extrabold">{value}</p>
           <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function ReviewCard({
+  rv, onApprove, onUnapprove, onDelete,
+}: {
+  rv: AdminReview
+  onApprove?: () => void
+  onUnapprove?: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="flex flex-col rounded-2xl border border-border bg-background p-4 shadow-sm">
+      <div className="flex items-center gap-0.5">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Star key={n} className={`h-4 w-4 ${n <= rv.rating ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30"}`} />
+        ))}
+      </div>
+      <p className="mt-2 flex-1 text-sm leading-relaxed">&ldquo;{rv.comment ?? ""}&rdquo;</p>
+      <p className="mt-3 text-sm font-bold">{rv.name}{rv.dog ? <span className="font-normal text-muted-foreground"> · {rv.dog}</span> : null}</p>
+      <p className="text-xs text-muted-foreground">{new Date(rv.created_at).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}</p>
+      <div className="mt-3 flex gap-2">
+        {onApprove && (
+          <Button onClick={onApprove} className="flex-1 rounded-full bg-primary font-bold text-primary-foreground hover:bg-primary/90">
+            <CheckCircle2 className="h-4 w-4" /> Aprobar
+          </Button>
+        )}
+        {onUnapprove && (
+          <Button onClick={onUnapprove} variant="outline" className="flex-1 rounded-full font-bold">
+            Ocultar
+          </Button>
+        )}
+        <Button onClick={onDelete} variant="outline" className="rounded-full border-destructive/40 font-bold text-destructive hover:bg-destructive/10">
+          Borrar
+        </Button>
       </div>
     </div>
   )

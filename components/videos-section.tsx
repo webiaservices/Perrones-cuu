@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import { Sparkles } from "lucide-react"
 
 /**
@@ -78,16 +79,46 @@ export function VideosSection() {
 }
 
 function VideoCard({ video }: { video: VideoItem }) {
+  const boxRef = useRef<HTMLDivElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [active, setActive] = useState(false)
+
+  // Solo carga/reproduce cuando la tarjeta está (casi) en pantalla.
+  // Así los 16MB de video no se descargan de golpe al abrir la página.
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      ([entry]) => setActive(entry.isIntersecting),
+      { rootMargin: "300px" },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    if (active) {
+      if (!v.src) v.src = video.src // descarga solo al entrar a la vista
+      v.play().catch(() => {})
+    } else {
+      v.pause()
+    }
+  }, [active, video.src])
+
   return (
-    <div className="hover-lift group relative aspect-[9/16] w-52 shrink-0 overflow-hidden rounded-3xl border border-border shadow-md md:w-60">
+    <div
+      ref={boxRef}
+      className="hover-lift group relative aspect-[9/16] w-52 shrink-0 overflow-hidden rounded-3xl border border-border bg-secondary shadow-md md:w-60"
+    >
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <video
-        src={video.src}
-        autoPlay
+        ref={videoRef}
         loop
         muted
         playsInline
-        preload="metadata"
+        preload="none"
         className="absolute inset-0 h-full w-full object-cover"
       />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-4">

@@ -46,12 +46,29 @@ export default async function PanelPage() {
     walkerMap = Object.fromEntries(walkerIds.map((id) => [id, { name: peopleMap[id]?.name ?? null }]))
   }
 
-  // Admin obtiene una vista distinta — fetch extra: lista completa de usuarios
+  // Admin obtiene una vista distinta — fetch extra: usuarios + reseñas por moderar
   if (role === "admin") {
     const { data: allUsers } = await supabase
       .from("profiles")
       .select("id, full_name, phone, role, zone, banned, created_at")
       .order("created_at", { ascending: false })
+    const { data: reviews } = await supabase
+      .from("reviews")
+      .select("id, rating, comment, reviewer_name, dog_name, approved, created_at, owner_id, profiles:owner_id(full_name), reservations:reservation_id(dog_name)")
+      .order("created_at", { ascending: false })
+    const reviewsMapped = (reviews ?? []).map((r) => {
+      const prof = r.profiles as unknown as { full_name: string | null } | null
+      const resv = r.reservations as unknown as { dog_name: string | null } | null
+      return {
+        id: r.id as string,
+        rating: r.rating as number,
+        comment: (r.comment as string | null) ?? null,
+        approved: r.approved as boolean,
+        created_at: r.created_at as string,
+        name: (r.reviewer_name as string | null) ?? prof?.full_name ?? "Cliente",
+        dog: (r.dog_name as string | null) ?? resv?.dog_name ?? "",
+      }
+    })
     return (
       <AdminPanel
         fullName={profile?.full_name ?? null}
@@ -60,6 +77,7 @@ export default async function PanelPage() {
         ownerMap={ownerMap}
         walkerMap={walkerMap}
         allUsers={allUsers ?? []}
+        reviews={reviewsMapped}
         initialAdminPct={(profile as { commission_pct?: number | null })?.commission_pct ?? null}
       />
     )

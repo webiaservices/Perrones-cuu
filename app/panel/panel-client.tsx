@@ -225,6 +225,12 @@ export function PanelClient({
                 Mis perros
               </Link>
             </Button>
+            <Button asChild variant="outline" className="rounded-full font-bold">
+              <Link href="/opinar">
+                <Star className="h-4 w-4" />
+                Deja tu reseña
+              </Link>
+            </Button>
           </div>
         )}
 
