@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       ? new Date(r.scheduled_at).toLocaleString("es-MX", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "America/Chihuahua" })
       : "Por confirmar"
     // Misma fórmula que los paneles: precio − comisión admin (30% default o fee en pesos)
-    const ganancia = walkerPayoutFor(Number(r.price_mxn), r.admin_fee_mxn, r.package_total ?? 1)
+    const ganancia = walkerPayoutFor(Number(r.price_mxn), r.admin_fee_mxn)
 
     await fetch("https://api.resend.com/emails", {
       method: "POST",

@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
       : "Por confirmar"
 
     // Misma fórmula que los paneles: precio − comisión admin (30% default o fee en pesos)
-    const ganancia = walkerPayoutFor(Number(reservation.price_mxn), reservation.admin_fee_mxn, reservation.package_total ?? 1)
+    const ganancia = walkerPayoutFor(Number(reservation.price_mxn), reservation.admin_fee_mxn)
 
     // 5. Manda correo a cada paseador via Resend
     const results = await Promise.allSettled(

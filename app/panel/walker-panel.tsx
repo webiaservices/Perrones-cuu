@@ -283,7 +283,7 @@ export function WalkerPanel({
   const walksOf = (r: WalkerReservation) => (r.package_total && r.package_total > 1 ? r.package_total : 1)
   const priceOf = (r: WalkerReservation) =>
     r.package_id ? (packagePrices[r.package_id] ?? Number(r.price_mxn || 0)) : Number(r.price_mxn || 0)
-  const gananciaFor = (r: WalkerReservation) => walkerPayoutFor(priceOf(r), r.admin_fee_mxn, walksOf(r))
+  const gananciaFor = (r: WalkerReservation) => walkerPayoutFor(priceOf(r), r.admin_fee_mxn)
 
   // Mis paseos: SIN agrupar — cada día de un paquete es su propia cita en la
   // agenda y el calendario (antes los días 2-N desaparecían tras el día 1)
@@ -330,7 +330,9 @@ export function WalkerPanel({
     const totalMin = inWeek.reduce((s, r) => s + durationMin(r.scheduled_at, r.scheduled_until), 0)
     const completados = inWeek.filter((r) => r.status === "completada").length
     // Por semana: cada día del paquete aporta su parte proporcional
-    const gananciaSemana = inWeek.reduce((s, r) => s + Math.round(gananciaFor(r) / walksOf(r)), 0)
+    // Redondeamos UNA sola vez al final (no por día) para que el total semanal
+    // cuadre exacto con la suma de los paseos (antes se iba ±$1 por redondeo)
+    const gananciaSemana = Math.round(inWeek.reduce((s, r) => s + gananciaFor(r) / walksOf(r), 0))
     return {
       paseosSemana: inWeek.length,
       horasTotales: (totalMin / 60).toFixed(1),

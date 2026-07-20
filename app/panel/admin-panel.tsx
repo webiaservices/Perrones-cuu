@@ -161,12 +161,12 @@ export function AdminPanel({
   // MISMA fórmula que ve el paseador en su panel y sus correos (lib/constants).
   const [adminFee, setAdminFee] = useState<number | null>(initialAdminPct)
   const [savingFee, setSavingFee] = useState(false)
-  const walksOf = (r: AdminReservation) => (r.package_total && r.package_total > 1 ? r.package_total : 1)
-  // Fee POR PASEO efectivo (para el prefill del editor inline)
+  // admin_fee_mxn = TOTAL en pesos que se queda el admin de ese paseo/paquete.
+  // Prefill del editor = 30% del total si aún no hay override.
   const feeForReservation = (r: AdminReservation) =>
-    r.admin_fee_mxn ?? Math.round((effectivePrice(r) * ADMIN_SHARE) / walksOf(r))
-  const adminShareFor = (r: AdminReservation) => adminFeeFor(effectivePrice(r), r.admin_fee_mxn, walksOf(r))
-  const walkerShareFor = (r: AdminReservation) => walkerPayoutFor(effectivePrice(r), r.admin_fee_mxn, walksOf(r))
+    r.admin_fee_mxn ?? Math.round(effectivePrice(r) * ADMIN_SHARE)
+  const adminShareFor = (r: AdminReservation) => adminFeeFor(effectivePrice(r), r.admin_fee_mxn)
+  const walkerShareFor = (r: AdminReservation) => walkerPayoutFor(effectivePrice(r), r.admin_fee_mxn)
   const saveAdminFee = async (v: number | null) => {
     setAdminFee(v)
     setSavingFee(true)
@@ -999,7 +999,7 @@ export function AdminPanel({
                                 className="w-16 rounded border border-primary/40 bg-white px-1.5 py-0.5 text-xs font-bold text-primary focus:outline-none focus:ring-1 focus:ring-primary"
                               />
                               <span className="text-[10px] text-muted-foreground">
-                                {editingFeeValue === null ? "30% auto" : `×${r.package_total && r.package_total > 1 ? r.package_total : 1}`}
+                                {editingFeeValue === null ? "30% auto" : "= tu parte del total"}
                               </span>
                             </div>
                           ) : (

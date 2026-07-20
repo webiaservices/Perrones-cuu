@@ -108,8 +108,7 @@ export const PLAN_FEATURES = [
   "Seguro para tu perrito incluido",
 ]
 
-// El paseador recibe el 70% del total; la plataforma se queda con 30%.
-export const WALKER_SHARE = 0.7
+// Por default la plataforma se queda el 30% del total; el resto es del paseador.
 export const ADMIN_SHARE = 0.3
 
 // Cuenta bancaria de la plataforma donde el cliente transfiere
@@ -136,30 +135,27 @@ export function priceForDogs(basePriceOrPlan: number | Plan, dogs: number) {
   return Math.round(basePrice * (1 + (dogs - 1) * 0.6))
 }
 
-export function walkerPayout(clientPrice: number) {
-  return Math.round(clientPrice * WALKER_SHARE)
-}
-
 // ============================================================
 // FÓRMULA ÚNICA DE REPARTO (usar en TODOS lados: panel admin,
 // panel paseador y correos, para que nunca se contradigan)
-// - Default: el admin se queda el 30% del precio.
-// - Editable: si la reserva trae admin_fee_mxn (en PESOS), ese
-//   monto manda. Para paquetes, admin_fee_mxn es POR PASEO.
+// - `price` = precio TOTAL del paseo (o del paquete completo).
+// - Default: el admin se queda el 30% del total.
+// - Editable: si la reserva trae admin_fee_mxn (en PESOS), ese monto es
+//   el TOTAL que se queda el admin de ESE paseo/paquete (no por día).
+//   Ej: total $300, admin_fee_mxn 100 → admin $100, paseador $200.
 // ============================================================
 
-/** Comisión del admin en pesos para un paseo/paquete de precio `price`.
- *  `feeOverride` = admin_fee_mxn (por paseo). `walks` = paseos del paquete. */
-export function adminFeeFor(price: number, feeOverride?: number | null, walks = 1) {
+/** Comisión del admin en pesos para un paseo/paquete de precio total `price`. */
+export function adminFeeFor(price: number, feeOverride?: number | null) {
   if (feeOverride !== null && feeOverride !== undefined) {
-    return Math.min(Math.max(0, Math.round(feeOverride)) * Math.max(1, walks), price)
+    return Math.min(Math.max(0, Math.round(feeOverride)), price)
   }
   return Math.round(price * ADMIN_SHARE)
 }
 
-/** Lo que recibe el paseador: precio menos la comisión del admin. */
-export function walkerPayoutFor(price: number, feeOverride?: number | null, walks = 1) {
-  return Math.max(0, price - adminFeeFor(price, feeOverride, walks))
+/** Lo que recibe el paseador: precio total menos la comisión del admin. */
+export function walkerPayoutFor(price: number, feeOverride?: number | null) {
+  return Math.max(0, price - adminFeeFor(price, feeOverride))
 }
 
 export const STATUS_LABELS: Record<string, string> = {
