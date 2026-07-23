@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, LogOut, PawPrint, CalendarDays, Dog, MapPin, Clock, Check, X, Star } from "lucide-react"
+import { ArrowLeft, ArrowRight, LogOut, PawPrint, CalendarDays, Dog, MapPin, Clock, Check, X, Star } from "lucide-react"
 import { ReviewModal } from "@/components/review-modal"
 
 export type Reservation = {
@@ -215,23 +215,37 @@ export function PanelClient({
         </div>
 
         {!isStaff && (
-          <div className="mb-6 flex flex-wrap gap-2">
-            <Button asChild className="rounded-full bg-[#3DCABD] font-bold text-white hover:bg-[#2ba89d]">
-              <Link href="/#precios">Agendar nuevo paseo</Link>
-            </Button>
-            <Button asChild variant="outline" className="rounded-full font-bold">
-              <Link href="/mis-perros">
-                <Dog className="h-4 w-4" />
-                Mis perros
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="rounded-full font-bold">
-              <Link href="/opinar">
-                <Star className="h-4 w-4" />
-                Deja tu reseña
-              </Link>
-            </Button>
-          </div>
+          <>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <Button asChild className="rounded-full bg-[#3DCABD] font-bold text-white hover:bg-[#2ba89d]">
+                <Link href="/#precios">Agendar nuevo paseo</Link>
+              </Button>
+              <Button asChild variant="outline" className="rounded-full font-bold">
+                <Link href="/mis-perros">
+                  <Dog className="h-4 w-4" />
+                  Mis perros
+                </Link>
+              </Button>
+            </div>
+
+            {/* Botón GRANDE de reseña — sin necesidad de reservar, pensado para
+                que cualquiera (incluidos clientes mayores) lo encuentre fácil */}
+            <Link
+              href="/opinar"
+              className="mb-6 flex items-center gap-4 rounded-3xl border-2 border-[#3DCABD] bg-[#3DCABD]/10 p-5 transition hover:bg-[#3DCABD]/20 active:scale-[0.99]"
+            >
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#3DCABD] text-white">
+                <Star className="h-8 w-8 fill-white" />
+              </div>
+              <div className="flex-1">
+                <p className="text-xl font-extrabold text-[#0d3333]">Deja tu reseña ⭐</p>
+                <p className="text-sm text-[#5a8080]">
+                  Cuéntanos cómo te fue. No necesitas tener un paseo agendado — solo un clic.
+                </p>
+              </div>
+              <ArrowRight className="h-6 w-6 shrink-0 text-[#3DCABD]" />
+            </Link>
+          </>
         )}
 
         {visible.length === 0 ? (
