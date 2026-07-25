@@ -16,7 +16,7 @@ export function ReviewsMarquee({ reviews }: { reviews: Testimonio[] }) {
   const durationS = Math.min(60, Math.max(24, reviews.length * 7))
 
   return (
-    <div className="relative">
+    <div className="relative overflow-hidden">
       {/* Difuminado en los bordes */}
       <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-16 bg-gradient-to-r from-secondary/60 to-transparent md:w-28" />
       <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-secondary/60 to-transparent md:w-28" />
