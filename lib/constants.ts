@@ -93,11 +93,11 @@ export const PLANS: Plan[] = [
   {
     id: "vip",
     name: "Paseo VIP",
-    basePrice: 800,
+    basePrice: 950,
     walks: "7 paseos · toda la semana",
     walksCount: 7,
     badge: "VIP",
-    priceByDogs: { 1: 800, 2: 1100, 3: 1400 },
+    priceByDogs: { 1: 950, 2: 1300, 3: 1700 },
   },
 ]
 

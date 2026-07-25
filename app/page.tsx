@@ -16,6 +16,7 @@ import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
 import { PricingSection } from "@/components/pricing-section"
 import { VideosSection } from "@/components/videos-section"
+import { ReviewsMarquee } from "@/components/reviews-marquee"
 import { BRAND } from "@/lib/constants"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -67,7 +68,7 @@ async function getRealReviews() {
       .eq("approved", true) // solo las que el admin ya aprobó
       .not("comment", "is", null)
       .order("created_at", { ascending: false })
-      .limit(3)
+      .limit(50)
     return (data ?? [])
       .filter((r: { comment: string | null }) => r.comment && r.comment.length > 5)
       .map((r) => {
@@ -87,10 +88,12 @@ async function getRealReviews() {
 
 export default async function HomePage() {
   const realReviews = await getRealReviews()
-  // Mezclamos: primero las reales, después fallback hasta completar 3
-  const TESTIMONIOS = realReviews.length >= 3
+  // Se muestran TODAS las reales rotando. Si hay pocas, rellenamos con las de
+  // respaldo solo para que el carrusel no se vea vacío (a partir de ~5 reales
+  // ya solo se ven reales).
+  const TESTIMONIOS = realReviews.length >= 5
     ? realReviews
-    : [...realReviews, ...FALLBACK_TESTIMONIOS].slice(0, 3)
+    : [...realReviews, ...FALLBACK_TESTIMONIOS].slice(0, 5)
   const supabase = await createClient()
   const {
     data: { user },
@@ -276,37 +279,7 @@ export default async function HomePage() {
                 </h2>
               </div>
             </Reveal>
-            <div className="grid gap-6 md:grid-cols-3">
-              {TESTIMONIOS.map((t, i) => (
-                <Reveal key={t.name} delay={i * 140} from="scale">
-                  <div className="hover-lift group flex h-full flex-col rounded-3xl border border-border bg-card p-6 shadow-sm">
-                    <div className="mb-3 flex">
-                      {[0, 1, 2, 3, 4].map((i) => (
-                        <Star
-                          key={i}
-                          className="h-4 w-4 fill-primary text-primary transition-transform group-hover:scale-110"
-                          style={{ transitionDelay: `${i * 40}ms` }}
-                        />
-                      ))}
-                    </div>
-                    <p className="text-pretty leading-relaxed">&ldquo;{t.text}&rdquo;</p>
-                    <div className="mt-auto flex items-center gap-3 border-t border-border pt-4">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/40 text-sm font-extrabold text-accent-foreground transition-transform group-hover:scale-110">
-                        {t.name
-                          .split(" ")
-                          .map((s) => s[0])
-                          .join("")
-                          .slice(0, 2)}
-                      </div>
-                      <div className="text-sm leading-tight">
-                        <p className="font-bold">{t.name}</p>
-                        <p className="text-muted-foreground">{t.dog}</p>
-                      </div>
-                    </div>
-                  </div>
-                </Reveal>
-              ))}
-            </div>
+            <ReviewsMarquee reviews={TESTIMONIOS} />
             <div className="mt-10 text-center">
               <p className="mb-3 text-sm text-muted-foreground">¿Ya paseaste con nosotros?</p>
               <Button asChild variant="outline" className="rounded-full font-bold">

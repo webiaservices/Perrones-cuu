@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -20,6 +20,8 @@ import {
   Footprints,
   ShieldCheck,
   Star,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -154,6 +156,20 @@ export function AdminPanel({
   const [reservations, setReservations] = useState(initial)
   const [users, setUsers] = useState(allUsers)
   const [reviews, setReviews] = useState(initialReviews)
+  // Zoom del panel: acerca/aleja TODO el contenido para que se vea más grande
+  // o quepa más. Se guarda la preferencia para la próxima vez.
+  const [zoom, setZoom] = useState(1)
+  useEffect(() => {
+    const saved = Number(localStorage.getItem("perrones_admin_zoom"))
+    if (saved >= 0.7 && saved <= 1.6) setZoom(saved)
+  }, [])
+  const changeZoom = (delta: number) => {
+    setZoom((z) => {
+      const next = Math.min(1.6, Math.max(0.7, Math.round((z + delta) * 100) / 100))
+      localStorage.setItem("perrones_admin_zoom", String(next))
+      return next
+    })
+  }
   const [view, setView] = useState<"tabla" | "calendario" | "usuarios" | "resenas">("tabla")
   // Reparto: default el admin se queda el 30% del precio. Editable en PESOS
   // por paseo (admin_fee_mxn en la reserva). adminFee (global, en pesos) es el
@@ -716,7 +732,30 @@ export function AdminPanel({
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-5 py-8 md:px-8">
+      {/* Control de zoom flotante — acercar/alejar los datos del panel */}
+      <div className="fixed bottom-5 right-5 z-50 flex items-center gap-1 rounded-full border border-border bg-background/95 p-1 shadow-lg backdrop-blur">
+        <button
+          onClick={() => changeZoom(-0.1)}
+          disabled={zoom <= 0.7}
+          title="Alejar (ver más pequeño)"
+          className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-secondary disabled:opacity-40"
+        >
+          <ZoomOut className="h-5 w-5" />
+        </button>
+        <span className="min-w-[3ch] text-center text-xs font-bold tabular-nums text-muted-foreground">
+          {Math.round(zoom * 100)}%
+        </span>
+        <button
+          onClick={() => changeZoom(0.1)}
+          disabled={zoom >= 1.6}
+          title="Acercar (ver más grande)"
+          className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-secondary disabled:opacity-40"
+        >
+          <ZoomIn className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="mx-auto max-w-7xl px-5 py-8 md:px-8" style={{ zoom }}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">{fullName ?? email}</p>
           <Button onClick={() => setShowCreateModal(true)} className="rounded-full bg-primary font-bold text-primary-foreground hover:bg-primary/90">
@@ -1345,7 +1384,7 @@ export function AdminPanel({
                   value={newPaseo.plan_name}
                   onChange={(e) => {
                     const v = e.target.value
-                    const price = v === "VIP 7 días" ? 630 : v === "Paseo semanal" ? 450 : v === "Paseo de 3 días" ? 300 : 110
+                    const price = v === "VIP 7 días" ? 950 : v === "Paseo semanal" ? 450 : v === "Paseo de 3 días" ? 300 : 110
                     setNewPaseo({ ...newPaseo, plan_name: v, price_mxn: price })
                     ensureSlotsLength(v)
                   }}
@@ -1354,7 +1393,7 @@ export function AdminPanel({
                   <option value="Paseo de 1 día">Paseo de 1 día — $110</option>
                   <option value="Paseo de 3 días">Paseo de 3 días — $300</option>
                   <option value="Paseo semanal">Paseo semanal — $450</option>
-                  <option value="VIP 7 días">VIP 7 días — $630</option>
+                  <option value="VIP 7 días">VIP 7 días — $950</option>
                 </select>
               </div>
               <div>
