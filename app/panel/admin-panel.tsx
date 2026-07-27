@@ -177,7 +177,7 @@ export function AdminPanel({
     configurado: boolean
     conectado: boolean
     mensaje: string
-    proveedor?: "360dialog" | "meta"
+    proveedor?: "twilio" | "360dialog" | "meta"
     numero?: string
     nombreNegocio?: string
     calidad?: string
@@ -1415,13 +1415,16 @@ export function AdminPanel({
               {/* Guía de conexión cuando todavía no está conectado */}
               {waStatus && !waStatus.conectado && (
                 <div className="mt-5 rounded-2xl border border-border bg-secondary/30 p-5">
-                  <p className="font-extrabold">¿Cómo conectarlo? (la forma fácil, sin tokens)</p>
+                  <p className="font-extrabold">¿Cómo se conecta?</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Lo configura tu desarrollador. Lo único que se necesita de tu parte es
+                    confirmar el número del negocio con un código que llega por WhatsApp/SMS.
+                  </p>
                   <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-foreground/80">
-                    <li>Entra a <b>hub.360dialog.com</b> y crea tu cuenta.</li>
-                    <li>Dale <b>&ldquo;Conectar WhatsApp&rdquo;</b> e inicia sesión con tu Facebook — ellos hacen todo el trámite técnico con Meta por ti.</li>
-                    <li>Elige el número de WhatsApp del negocio (uno que <b>no</b> tenga WhatsApp normal instalado).</li>
-                    <li>Al terminar te dan una <b>API key</b>. Cópiala y pásasela a tu desarrollador para pegarla en la configuración del sitio.</li>
-                    <li>Listo — vuelve aquí, dale &ldquo;Revisar de nuevo&rdquo; y manda un mensaje de prueba.</li>
+                    <li>Tu desarrollador crea la cuenta con el proveedor de mensajes.</li>
+                    <li>Te llega un <b>código de verificación</b> al número del negocio — pásaselo.</li>
+                    <li>Se dan de alta las 4 plantillas de abajo (Meta las aprueba en unas horas).</li>
+                    <li>Vuelve aquí, dale <b>&ldquo;Revisar de nuevo&rdquo;</b> y manda un mensaje de prueba.</li>
                   </ol>
                 </div>
               )}

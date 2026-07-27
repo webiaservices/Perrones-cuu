@@ -1,38 +1,77 @@
 /**
- * Cliente de WhatsApp. Soporta DOS formas de conectarse:
+ * Cliente de WhatsApp. Soporta TRES proveedores; se elige solo según qué env
+ * vars existan, en este orden:
  *
- * A) 360dialog (RECOMENDADO — la fácil, sin pelearse con tokens de Meta):
- *      WHATSAPP_360_API_KEY   — la API key que te da 360dialog
- *    Te registras en 360dialog entrando con Facebook, ellos hacen el trámite
- *    técnico con Meta y te dan una API key que no caduca.
+ * 1) TWILIO (RECOMENDADO — sin mensualidad, credenciales que no caducan):
+ *      TWILIO_ACCOUNT_SID
+ *      TWILIO_AUTH_TOKEN
+ *      TWILIO_WHATSAPP_FROM        — número emisor (ej. +5216145948513)
+ *      TWILIO_TPL_<PLANTILLA>      — Content SID (HX...) de cada plantilla
  *
- * B) Meta Cloud API directa (la difícil — token que caduca):
+ * 2) 360dialog (fácil de dar de alta, pero ~€49/mes):
+ *      WHATSAPP_360_API_KEY
+ *
+ * 3) Meta Cloud API directa (gratis, pero el token hay que renovarlo bien):
  *      WHATSAPP_PHONE_NUMBER_ID
  *      WHATSAPP_ACCESS_TOKEN
  *      WHATSAPP_BUSINESS_ACCOUNT_ID  (para leer el estado de las plantillas)
  *
- * Si hay API key de 360dialog se usa esa; si no, se intenta con Meta. Si no
- * hay ninguna, las llamadas son no-op ({ skipped: true }) para que el código
- * corra en local sin WhatsApp configurado.
+ * Si no hay ninguna, las llamadas son no-op ({ skipped: true }) para que el
+ * código corra en local sin WhatsApp configurado.
  *
- * El formato de los mensajes es idéntico en ambos, solo cambia la URL y cómo
- * se autentica — por eso el resto del código no se entera de cuál se usa.
+ * Meta y 360dialog comparten formato (Cloud API); Twilio tiene el suyo
+ * (form-encoded y plantillas por Content SID en vez de por nombre).
  */
 
 const GRAPH_VERSION = "v21.0"
 const API_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`
 const D360_BASE = "https://waba-v2.360dialog.io"
 
+const TWILIO_BASE = "https://api.twilio.com/2010-04-01"
+
+type Proveedor = "twilio" | "360dialog" | "meta"
+
 type Conexion = {
-  proveedor: "360dialog" | "meta"
+  proveedor: Proveedor
   /** URL para mandar mensajes */
   urlMensajes: string
   /** Headers de autenticación */
   headers: Record<string, string>
+  /** Solo Twilio: número desde el que se manda (formato whatsapp:+52...) */
+  from?: string
+}
+
+/**
+ * En Twilio las plantillas no van por nombre sino por "Content SID" (HX...).
+ * Cada plantilla aprobada tiene el suyo; se configuran con env vars:
+ *   TWILIO_TPL_PASEO_CONFIRMADO, TWILIO_TPL_PASEADOR_ASIGNADO,
+ *   TWILIO_TPL_PASEO_DISPONIBLE, TWILIO_TPL_RECORDATORIO_PAGO
+ */
+function twilioContentSid(template: string): string | undefined {
+  return process.env[`TWILIO_TPL_${template.toUpperCase()}`]
 }
 
 /** Decide con cuál proveedor conectarse según las env vars disponibles. */
 function getConexion(): Conexion | null {
+  // 1. Twilio (sin mensualidad, credenciales que no caducan)
+  const TW_SID = process.env.TWILIO_ACCOUNT_SID
+  const TW_TOKEN = process.env.TWILIO_AUTH_TOKEN
+  const TW_FROM = process.env.TWILIO_WHATSAPP_FROM
+  if (TW_SID && TW_TOKEN && TW_FROM) {
+    const auth = Buffer.from(`${TW_SID}:${TW_TOKEN}`).toString("base64")
+    return {
+      proveedor: "twilio",
+      urlMensajes: `${TWILIO_BASE}/Accounts/${TW_SID}/Messages.json`,
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      // ensureCountryCode y no cleanNumber: si el número viene a 10 dígitos hay
+      // que anteponerle el 52, si no Twilio lo rechaza
+      from: TW_FROM.startsWith("whatsapp:") ? TW_FROM : `whatsapp:+${ensureCountryCode(TW_FROM)}`,
+    }
+  }
+  // 2. 360dialog
   const D360_KEY = process.env.WHATSAPP_360_API_KEY
   if (D360_KEY) {
     return {
@@ -41,6 +80,7 @@ function getConexion(): Conexion | null {
       headers: { "D360-API-KEY": D360_KEY, "Content-Type": "application/json" },
     }
   }
+  // 3. Meta directa
   const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
   const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
   if (PHONE_ID && TOKEN) {
@@ -98,6 +138,42 @@ export async function sendWhatsAppTemplate(
     return { ok: false, skipped: true, reason: `Número inválido: ${to}` }
   }
 
+  // --- Twilio: formato propio (form-encoded + Content SID por plantilla) ---
+  if (con.proveedor === "twilio") {
+    const contentSid = twilioContentSid(template)
+    if (!contentSid) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: `Falta configurar el Content SID de la plantilla "${template}" (env TWILIO_TPL_${template.toUpperCase()})`,
+      }
+    }
+    // Twilio numera las variables desde "1"
+    const twVars: Record<string, string> = {}
+    vars.forEach((v, i) => { twVars[String(i + 1)] = String(v) })
+
+    try {
+      const body = new URLSearchParams({
+        To: `whatsapp:+${cleaned}`,
+        From: con.from!,
+        ContentSid: contentSid,
+        ContentVariables: JSON.stringify(twVars),
+      })
+      const res = await fetch(con.urlMensajes, { method: "POST", headers: con.headers, body })
+      const data = await res.json()
+      if (!res.ok) {
+        console.error("[WhatsApp/Twilio] error:", data)
+        return { ok: false, error: data?.message ?? "Error desconocido" }
+      }
+      return { ok: true, messageId: data?.sid ?? "" }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Error de red"
+      console.error("[WhatsApp/Twilio] exception:", msg)
+      return { ok: false, error: msg }
+    }
+  }
+
+  // --- Meta / 360dialog: mismo formato (Cloud API) ---
   try {
     const res = await fetch(con.urlMensajes, {
       method: "POST",
@@ -147,7 +223,7 @@ export type WhatsAppStatus = {
   conectado: boolean
   /** Mensaje en español explicando qué pasa y qué hacer */
   mensaje: string
-  proveedor?: "360dialog" | "meta"
+  proveedor?: "twilio" | "360dialog" | "meta"
   numero?: string
   nombreNegocio?: string
   calidad?: string
@@ -169,8 +245,56 @@ export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
       configurado: false,
       conectado: false,
       mensaje:
-        "WhatsApp no está conectado todavía. La forma más fácil es crear una cuenta en 360dialog (entras con Facebook, ellos hacen el trámite con Meta) y pegar aquí la API key que te dan.",
+        "WhatsApp no está conectado todavía. Falta configurar las credenciales del proveedor de mensajes en el sitio.",
       plantillas: sinPlantillas,
+    }
+  }
+
+  // --- Twilio: valida las credenciales contra la cuenta y revisa los Content SID ---
+  if (con.proveedor === "twilio") {
+    const plantillasTwilio = PLANTILLAS_REQUERIDAS.map((p) => ({
+      ...p,
+      estado: twilioContentSid(p.name) ? "configurada" : "falta su Content SID",
+    }))
+    try {
+      const SID = process.env.TWILIO_ACCOUNT_SID!
+      const res = await fetch(`${TWILIO_BASE}/Accounts/${SID}.json`, {
+        headers: { Authorization: con.headers.Authorization },
+        cache: "no-store",
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        return {
+          configurado: true,
+          conectado: false,
+          proveedor: "twilio",
+          mensaje:
+            res.status === 401
+              ? "Las credenciales de Twilio no son válidas. Revisa el Account SID y el Auth Token en el panel de Twilio."
+              : `Twilio respondió un error: ${data?.message ?? res.status}`,
+          plantillas: plantillasTwilio,
+        }
+      }
+      const faltantes = plantillasTwilio.filter((p) => p.estado !== "configurada").length
+      return {
+        configurado: true,
+        conectado: true,
+        proveedor: "twilio",
+        mensaje: faltantes
+          ? `Twilio conectado, pero faltan ${faltantes} plantilla(s) por configurar su Content SID.`
+          : "WhatsApp está conectado por Twilio y funcionando.",
+        numero: con.from?.replace("whatsapp:", ""),
+        nombreNegocio: data?.friendly_name,
+        plantillas: plantillasTwilio,
+      }
+    } catch (e: unknown) {
+      return {
+        configurado: true,
+        conectado: false,
+        proveedor: "twilio",
+        mensaje: `No se pudo contactar a Twilio: ${e instanceof Error ? e.message : "error de red"}`,
+        plantillas: plantillasTwilio,
+      }
     }
   }
 
