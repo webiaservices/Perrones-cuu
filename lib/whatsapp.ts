@@ -1,18 +1,57 @@
 /**
- * Cliente de WhatsApp Cloud API (Meta directa).
- * Manda mensajes usando templates pre-aprobados.
+ * Cliente de WhatsApp. Soporta DOS formas de conectarse:
  *
- * Env vars requeridas:
- *   WHATSAPP_PHONE_NUMBER_ID   — del Paso 3 del setup de Meta
- *   WHATSAPP_ACCESS_TOKEN      — del Paso 5 del setup de Meta
+ * A) 360dialog (RECOMENDADO — la fácil, sin pelearse con tokens de Meta):
+ *      WHATSAPP_360_API_KEY   — la API key que te da 360dialog
+ *    Te registras en 360dialog entrando con Facebook, ellos hacen el trámite
+ *    técnico con Meta y te dan una API key que no caduca.
  *
- * Si las env vars no están, las llamadas son no-op (no fallan, solo
- * regresan { skipped: true }). Eso permite que el código corra en local
- * sin WhatsApp configurado.
+ * B) Meta Cloud API directa (la difícil — token que caduca):
+ *      WHATSAPP_PHONE_NUMBER_ID
+ *      WHATSAPP_ACCESS_TOKEN
+ *      WHATSAPP_BUSINESS_ACCOUNT_ID  (para leer el estado de las plantillas)
+ *
+ * Si hay API key de 360dialog se usa esa; si no, se intenta con Meta. Si no
+ * hay ninguna, las llamadas son no-op ({ skipped: true }) para que el código
+ * corra en local sin WhatsApp configurado.
+ *
+ * El formato de los mensajes es idéntico en ambos, solo cambia la URL y cómo
+ * se autentica — por eso el resto del código no se entera de cuál se usa.
  */
 
 const GRAPH_VERSION = "v21.0"
 const API_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`
+const D360_BASE = "https://waba-v2.360dialog.io"
+
+type Conexion = {
+  proveedor: "360dialog" | "meta"
+  /** URL para mandar mensajes */
+  urlMensajes: string
+  /** Headers de autenticación */
+  headers: Record<string, string>
+}
+
+/** Decide con cuál proveedor conectarse según las env vars disponibles. */
+function getConexion(): Conexion | null {
+  const D360_KEY = process.env.WHATSAPP_360_API_KEY
+  if (D360_KEY) {
+    return {
+      proveedor: "360dialog",
+      urlMensajes: `${D360_BASE}/messages`,
+      headers: { "D360-API-KEY": D360_KEY, "Content-Type": "application/json" },
+    }
+  }
+  const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
+  const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
+  if (PHONE_ID && TOKEN) {
+    return {
+      proveedor: "meta",
+      urlMensajes: `${API_BASE}/${PHONE_ID}/messages`,
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+    }
+  }
+  return null
+}
 
 /** Limpia el número: solo dígitos, sin +, sin espacios, sin guiones */
 function cleanNumber(num: string): string {
@@ -49,11 +88,9 @@ export async function sendWhatsAppTemplate(
   vars: string[],
   lang = "es_MX",
 ): Promise<WhatsAppResponse> {
-  const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
-  const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
-
-  if (!PHONE_ID || !TOKEN) {
-    return { ok: false, skipped: true, reason: "WhatsApp no configurado (faltan env vars)" }
+  const con = getConexion()
+  if (!con) {
+    return { ok: false, skipped: true, reason: "WhatsApp no configurado (faltan credenciales)" }
   }
 
   const cleaned = ensureCountryCode(to)
@@ -62,12 +99,9 @@ export async function sendWhatsAppTemplate(
   }
 
   try {
-    const res = await fetch(`${API_BASE}/${PHONE_ID}/messages`, {
+    const res = await fetch(con.urlMensajes, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${TOKEN}`,
-        "Content-Type": "application/json",
-      },
+      headers: con.headers,
       body: JSON.stringify({
         messaging_product: "whatsapp",
         to: cleaned,
@@ -100,10 +134,6 @@ export async function sendWhatsAppTemplate(
   }
 }
 
-/**
- * Manda un mensaje de texto libre (solo funciona si el cliente te escribió
- * en las últimas 24h — fuera de eso Meta exige templates pre-aprobados).
- */
 /** Plantillas que la plataforma necesita tener aprobadas en Meta */
 export const PLANTILLAS_REQUERIDAS = [
   { name: "paseo_confirmado", desc: "Al cliente cuando agenda su paseo" },
@@ -117,6 +147,7 @@ export type WhatsAppStatus = {
   conectado: boolean
   /** Mensaje en español explicando qué pasa y qué hacer */
   mensaje: string
+  proveedor?: "360dialog" | "meta"
   numero?: string
   nombreNegocio?: string
   calidad?: string
@@ -124,27 +155,73 @@ export type WhatsAppStatus = {
 }
 
 /**
- * Revisa el estado real de la conexión con Meta: si el token sirve, qué número
+ * Revisa el estado real de la conexión: si las credenciales sirven, qué número
  * está conectado y cuáles plantillas están aprobadas. Sirve para que el admin
- * vea de un vistazo por qué no salen los mensajes (token vencido, plantilla sin
- * aprobar, etc.) en vez de quedarse a ciegas.
+ * vea de un vistazo por qué no salen los mensajes (credencial vencida, plantilla
+ * sin aprobar, etc.) en vez de quedarse a ciegas.
  */
 export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
-  const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
-  const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
-  const WABA_ID = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID
-
   const sinPlantillas = PLANTILLAS_REQUERIDAS.map((p) => ({ ...p, estado: "desconocido" }))
+  const con = getConexion()
 
-  if (!PHONE_ID || !TOKEN) {
+  if (!con) {
     return {
       configurado: false,
       conectado: false,
       mensaje:
-        "WhatsApp no está conectado todavía. Faltan las credenciales de Meta (WHATSAPP_PHONE_NUMBER_ID y WHATSAPP_ACCESS_TOKEN) en la configuración del sitio.",
+        "WhatsApp no está conectado todavía. La forma más fácil es crear una cuenta en 360dialog (entras con Facebook, ellos hacen el trámite con Meta) y pegar aquí la API key que te dan.",
       plantillas: sinPlantillas,
     }
   }
+
+  // --- 360dialog: la API key valida contra su endpoint de plantillas ---
+  if (con.proveedor === "360dialog") {
+    try {
+      const res = await fetch(`${D360_BASE}/v1/configs/templates`, {
+        headers: con.headers,
+        cache: "no-store",
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        return {
+          configurado: true,
+          conectado: false,
+          proveedor: "360dialog",
+          mensaje:
+            res.status === 401 || res.status === 403
+              ? "La API key de 360dialog no es válida o fue reemplazada. Genera una nueva en tu panel de 360dialog y actualízala aquí (solo la más reciente funciona)."
+              : `360dialog respondió un error: ${data?.message ?? res.status}`,
+          plantillas: sinPlantillas,
+        }
+      }
+      const lista: { name?: string; status?: string }[] = data?.waba_templates ?? data?.data ?? []
+      const porNombre: Record<string, string> = {}
+      for (const t of lista) if (t?.name) porNombre[t.name] = String(t.status ?? "").toUpperCase()
+      return {
+        configurado: true,
+        conectado: true,
+        proveedor: "360dialog",
+        mensaje: "WhatsApp está conectado por 360dialog y funcionando.",
+        plantillas: PLANTILLAS_REQUERIDAS.map((p) => ({
+          ...p,
+          estado: porNombre[p.name] ?? "no existe",
+        })),
+      }
+    } catch (e: unknown) {
+      return {
+        configurado: true,
+        conectado: false,
+        proveedor: "360dialog",
+        mensaje: `No se pudo contactar a 360dialog: ${e instanceof Error ? e.message : "error de red"}`,
+        plantillas: sinPlantillas,
+      }
+    }
+  }
+
+  // --- Meta directa ---
+  const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
+  const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
+  const WABA_ID = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID
 
   // 1. ¿El token sirve y a qué número apunta?
   try {
@@ -169,7 +246,7 @@ export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
         mensaje =
           "Al token le faltan permisos. Necesita los permisos whatsapp_business_messaging y whatsapp_business_management."
       }
-      return { configurado: true, conectado: false, mensaje, plantillas: sinPlantillas }
+      return { configurado: true, conectado: false, proveedor: "meta", mensaje, plantillas: sinPlantillas }
     }
 
     // 2. ¿Qué plantillas están aprobadas?
@@ -197,7 +274,8 @@ export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
     return {
       configurado: true,
       conectado: true,
-      mensaje: "WhatsApp está conectado y funcionando.",
+      proveedor: "meta",
+      mensaje: "WhatsApp está conectado por Meta y funcionando.",
       numero: data?.display_phone_number,
       nombreNegocio: data?.verified_name,
       calidad: data?.quality_rating,
@@ -207,6 +285,7 @@ export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
     return {
       configurado: true,
       conectado: false,
+      proveedor: "meta",
       mensaje: `No se pudo contactar a Meta: ${e instanceof Error ? e.message : "error de red"}`,
       plantillas: sinPlantillas,
     }

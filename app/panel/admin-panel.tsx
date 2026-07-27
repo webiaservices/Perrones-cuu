@@ -177,6 +177,7 @@ export function AdminPanel({
     configurado: boolean
     conectado: boolean
     mensaje: string
+    proveedor?: "360dialog" | "meta"
     numero?: string
     nombreNegocio?: string
     calidad?: string
@@ -1402,11 +1403,26 @@ export function AdminPanel({
                   <p className="mt-1 text-sm leading-relaxed text-foreground/80">{waStatus.mensaje}</p>
                   {waStatus.conectado && (
                     <div className="mt-3 flex flex-wrap gap-4 text-sm">
+                      {waStatus.proveedor && <span><b>Conectado por:</b> {waStatus.proveedor}</span>}
                       {waStatus.numero && <span><b>Número:</b> {waStatus.numero}</span>}
                       {waStatus.nombreNegocio && <span><b>Negocio:</b> {waStatus.nombreNegocio}</span>}
                       {waStatus.calidad && <span><b>Calidad:</b> {waStatus.calidad}</span>}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Guía de conexión cuando todavía no está conectado */}
+              {waStatus && !waStatus.conectado && (
+                <div className="mt-5 rounded-2xl border border-border bg-secondary/30 p-5">
+                  <p className="font-extrabold">¿Cómo conectarlo? (la forma fácil, sin tokens)</p>
+                  <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-foreground/80">
+                    <li>Entra a <b>hub.360dialog.com</b> y crea tu cuenta.</li>
+                    <li>Dale <b>&ldquo;Conectar WhatsApp&rdquo;</b> e inicia sesión con tu Facebook — ellos hacen todo el trámite técnico con Meta por ti.</li>
+                    <li>Elige el número de WhatsApp del negocio (uno que <b>no</b> tenga WhatsApp normal instalado).</li>
+                    <li>Al terminar te dan una <b>API key</b>. Cópiala y pásasela a tu desarrollador para pegarla en la configuración del sitio.</li>
+                    <li>Listo — vuelve aquí, dale &ldquo;Revisar de nuevo&rdquo; y manda un mensaje de prueba.</li>
+                  </ol>
                 </div>
               )}
             </div>
