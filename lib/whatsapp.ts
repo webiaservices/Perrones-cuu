@@ -104,6 +104,115 @@ export async function sendWhatsAppTemplate(
  * Manda un mensaje de texto libre (solo funciona si el cliente te escribió
  * en las últimas 24h — fuera de eso Meta exige templates pre-aprobados).
  */
+/** Plantillas que la plataforma necesita tener aprobadas en Meta */
+export const PLANTILLAS_REQUERIDAS = [
+  { name: "paseo_confirmado", desc: "Al cliente cuando agenda su paseo" },
+  { name: "paseador_asignado", desc: "Al cliente cuando un paseador acepta" },
+  { name: "paseo_disponible", desc: "A los paseadores cuando hay paseo nuevo" },
+  { name: "recordatorio_pago", desc: "Al cliente cuando el paseo se completa" },
+]
+
+export type WhatsAppStatus = {
+  configurado: boolean
+  conectado: boolean
+  /** Mensaje en español explicando qué pasa y qué hacer */
+  mensaje: string
+  numero?: string
+  nombreNegocio?: string
+  calidad?: string
+  plantillas: { name: string; desc: string; estado: string }[]
+}
+
+/**
+ * Revisa el estado real de la conexión con Meta: si el token sirve, qué número
+ * está conectado y cuáles plantillas están aprobadas. Sirve para que el admin
+ * vea de un vistazo por qué no salen los mensajes (token vencido, plantilla sin
+ * aprobar, etc.) en vez de quedarse a ciegas.
+ */
+export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
+  const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
+  const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
+  const WABA_ID = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID
+
+  const sinPlantillas = PLANTILLAS_REQUERIDAS.map((p) => ({ ...p, estado: "desconocido" }))
+
+  if (!PHONE_ID || !TOKEN) {
+    return {
+      configurado: false,
+      conectado: false,
+      mensaje:
+        "WhatsApp no está conectado todavía. Faltan las credenciales de Meta (WHATSAPP_PHONE_NUMBER_ID y WHATSAPP_ACCESS_TOKEN) en la configuración del sitio.",
+      plantillas: sinPlantillas,
+    }
+  }
+
+  // 1. ¿El token sirve y a qué número apunta?
+  try {
+    const res = await fetch(
+      `${API_BASE}/${PHONE_ID}?fields=display_phone_number,verified_name,quality_rating`,
+      { headers: { Authorization: `Bearer ${TOKEN}` }, cache: "no-store" },
+    )
+    const data = await res.json()
+
+    if (!res.ok) {
+      const err = data?.error ?? {}
+      const code = err.code
+      let mensaje = err.message ?? "Meta rechazó la conexión."
+      // Traduce los errores más comunes a algo accionable
+      if (code === 190) {
+        mensaje =
+          "El token de Meta venció o fue revocado. Hay que generar uno NUEVO y permanente (System User token) en Meta Business y actualizarlo en la configuración del sitio. Los tokens temporales caducan a las 24 horas."
+      } else if (code === 100) {
+        mensaje =
+          "El ID del número de WhatsApp no es válido. Revisa que WHATSAPP_PHONE_NUMBER_ID sea el 'Phone number ID' que aparece en el panel de Meta (no el número telefónico)."
+      } else if (code === 10 || code === 200) {
+        mensaje =
+          "Al token le faltan permisos. Necesita los permisos whatsapp_business_messaging y whatsapp_business_management."
+      }
+      return { configurado: true, conectado: false, mensaje, plantillas: sinPlantillas }
+    }
+
+    // 2. ¿Qué plantillas están aprobadas?
+    let plantillas = sinPlantillas
+    if (WABA_ID) {
+      try {
+        const rt = await fetch(
+          `${API_BASE}/${WABA_ID}/message_templates?fields=name,status&limit=100`,
+          { headers: { Authorization: `Bearer ${TOKEN}` }, cache: "no-store" },
+        )
+        const td = await rt.json()
+        if (rt.ok && Array.isArray(td?.data)) {
+          const porNombre: Record<string, string> = {}
+          for (const t of td.data) porNombre[t.name] = String(t.status ?? "").toUpperCase()
+          plantillas = PLANTILLAS_REQUERIDAS.map((p) => ({
+            ...p,
+            estado: porNombre[p.name] ?? "no existe",
+          }))
+        }
+      } catch {
+        /* si falla, dejamos "desconocido" */
+      }
+    }
+
+    return {
+      configurado: true,
+      conectado: true,
+      mensaje: "WhatsApp está conectado y funcionando.",
+      numero: data?.display_phone_number,
+      nombreNegocio: data?.verified_name,
+      calidad: data?.quality_rating,
+      plantillas,
+    }
+  } catch (e: unknown) {
+    return {
+      configurado: true,
+      conectado: false,
+      mensaje: `No se pudo contactar a Meta: ${e instanceof Error ? e.message : "error de red"}`,
+      plantillas: sinPlantillas,
+    }
+  }
+}
+
 export async function sendWhatsAppText(to: string, text: string): Promise<WhatsAppResponse> {
   const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
   const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN

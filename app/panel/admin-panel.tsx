@@ -20,6 +20,7 @@ import {
   Footprints,
   ShieldCheck,
   Star,
+  MessageCircle,
   ZoomIn,
   ZoomOut,
 } from "lucide-react"
@@ -170,7 +171,41 @@ export function AdminPanel({
       return next
     })
   }
-  const [view, setView] = useState<"tabla" | "calendario" | "usuarios" | "resenas">("tabla")
+  const [view, setView] = useState<"tabla" | "calendario" | "usuarios" | "resenas" | "whatsapp">("tabla")
+  // Estado de la conexión de WhatsApp (se carga al abrir la pestaña)
+  type WaStatus = {
+    configurado: boolean
+    conectado: boolean
+    mensaje: string
+    numero?: string
+    nombreNegocio?: string
+    calidad?: string
+    plantillas: { name: string; desc: string; estado: string }[]
+  }
+  const [waStatus, setWaStatus] = useState<WaStatus | null>(null)
+  const [waLoading, setWaLoading] = useState(false)
+  const [waTestPhone, setWaTestPhone] = useState("")
+  const [waTestMsg, setWaTestMsg] = useState<string | null>(null)
+  const loadWaStatus = async () => {
+    setWaLoading(true)
+    try {
+      const res = await fetch("/api/whatsapp-status")
+      setWaStatus(await res.json())
+    } catch {
+      setWaStatus(null)
+    }
+    setWaLoading(false)
+  }
+  const sendWaTest = async () => {
+    setWaTestMsg(null)
+    const res = await fetch("/api/whatsapp-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telefono: waTestPhone }),
+    })
+    const data = await res.json()
+    setWaTestMsg(data.mensaje ?? data.error ?? "Error")
+  }
   // Reparto: default el admin se queda el 30% del precio. Editable en PESOS
   // por paseo (admin_fee_mxn en la reserva). adminFee (global, en pesos) es el
   // default que se estampa en los paseos que TÚ creas; null = usar 30%.
@@ -899,6 +934,15 @@ export function AdminPanel({
               <span className="rounded-full bg-amber-400 px-2 py-0.5 text-xs text-amber-950">{pendingReviews.length}</span>
             )}
           </button>
+          <button
+            onClick={() => { setView("whatsapp"); loadWaStatus() }}
+            className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-all ${
+              view === "whatsapp" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <MessageCircle className="h-4 w-4" />
+            WhatsApp
+          </button>
         </div>
 
         {/* Vista tabla */}
@@ -1323,6 +1367,100 @@ export function AdminPanel({
                     <ReviewCard key={rv.id} rv={rv} onUnapprove={() => unapproveReview(rv.id)} onDelete={() => deleteReview(rv.id)} />
                   ))}
                 </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {view === "whatsapp" && (
+          <section className="mt-6 space-y-6">
+            {/* Estado de la conexión */}
+            <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-display text-2xl font-extrabold tracking-tight">Mensajes automáticos por WhatsApp</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Aquí ves si WhatsApp está conectado y puedes mandar un mensaje de prueba.
+                  </p>
+                </div>
+                <Button onClick={loadWaStatus} disabled={waLoading} variant="outline" className="rounded-full font-bold">
+                  {waLoading ? "Revisando…" : "Revisar de nuevo"}
+                </Button>
+              </div>
+
+              {waLoading && !waStatus && <p className="mt-5 text-sm text-muted-foreground">Revisando la conexión…</p>}
+
+              {waStatus && (
+                <div
+                  className={`mt-5 rounded-2xl border-2 p-5 ${
+                    waStatus.conectado ? "border-emerald-300 bg-emerald-50" : "border-amber-400 bg-amber-50"
+                  }`}
+                >
+                  <p className="text-lg font-extrabold">
+                    {waStatus.conectado ? "✅ WhatsApp conectado" : "⚠️ WhatsApp NO está mandando mensajes"}
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed text-foreground/80">{waStatus.mensaje}</p>
+                  {waStatus.conectado && (
+                    <div className="mt-3 flex flex-wrap gap-4 text-sm">
+                      {waStatus.numero && <span><b>Número:</b> {waStatus.numero}</span>}
+                      {waStatus.nombreNegocio && <span><b>Negocio:</b> {waStatus.nombreNegocio}</span>}
+                      {waStatus.calidad && <span><b>Calidad:</b> {waStatus.calidad}</span>}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Plantillas */}
+            {waStatus && (
+              <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
+                <h3 className="font-display text-xl font-extrabold">Mensajes que manda la plataforma</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Meta tiene que aprobar cada plantilla antes de que se pueda mandar.
+                </p>
+                <div className="mt-4 space-y-2">
+                  {waStatus.plantillas.map((p) => {
+                    const ok = p.estado === "APPROVED"
+                    const pend = p.estado === "PENDING" || p.estado === "IN_APPEAL"
+                    return (
+                      <div key={p.name} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-secondary/40 px-4 py-3">
+                        <div>
+                          <p className="font-bold">{p.desc}</p>
+                          <p className="text-xs text-muted-foreground">{p.name}</p>
+                        </div>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-bold ${
+                            ok ? "bg-emerald-100 text-emerald-800"
+                              : pend ? "bg-amber-100 text-amber-800"
+                              : "bg-rose-100 text-rose-800"
+                          }`}
+                        >
+                          {ok ? "Aprobada" : pend ? "En revisión" : p.estado === "no existe" ? "Falta crearla" : p.estado}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Prueba */}
+            <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
+              <h3 className="font-display text-xl font-extrabold">Mandar un mensaje de prueba</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Pon tu número (10 dígitos) y te llega un WhatsApp de prueba para confirmar que jala.
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <Input
+                  value={waTestPhone}
+                  onChange={(e) => setWaTestPhone(e.target.value)}
+                  placeholder="6141234567"
+                  className="w-48"
+                />
+                <Button onClick={sendWaTest} className="rounded-full font-bold">Enviar prueba</Button>
+              </div>
+              {waTestMsg && (
+                <p className="mt-3 rounded-xl bg-secondary/50 px-4 py-3 text-sm font-semibold">{waTestMsg}</p>
               )}
             </div>
           </section>
