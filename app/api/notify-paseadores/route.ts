@@ -5,8 +5,8 @@ import { sendWhatsAppTemplate } from "@/lib/whatsapp"
 import { getCaller } from "@/lib/api-auth"
 
 /**
- * Notifica por correo a los paseadores cuya `zone` coincide con la reserva.
- * Llamado desde el cliente justo después de crear la reserva.
+ * Notifica por correo (y WhatsApp) a TODOS los paseadores activos cuando hay
+ * un paseo disponible. Llamado al crear la reserva y al hacerla pública.
  *
  * Requiere env var RESEND_API_KEY. Si no está, hace no-op silencioso.
  */
@@ -51,27 +51,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ notified: 0, reason: "paseo secundario de paquete" })
     }
 
-    // 2. Encuentra paseadores en esa zona
+    // 2. Avisa a TODOS los paseadores activos (no baneados), igual que lo que
+    //    ven en su panel: ahí aparecen todos los paseos disponibles, con los de
+    //    su zona primero. Antes solo se avisaba a los de zona idéntica, así que
+    //    un paseo en una colonia escrita a mano (zona "Otra") no le llegaba a
+    //    NADIE. La zona va bien visible en el correo para que decidan.
     const { data: profiles } = await admin
       .from("profiles")
-      .select("id, full_name, phone")
+      .select("id, full_name, phone, zone, banned")
       .eq("role", "paseador")
-      .eq("zone", reservation.zone)
 
-    if (!profiles || profiles.length === 0) {
-      return NextResponse.json({ notified: 0, reason: "sin paseadores en la zona" })
+    const activos = (profiles ?? []).filter((p) => !p.banned)
+    if (activos.length === 0) {
+      return NextResponse.json({ notified: 0, reason: "sin paseadores activos" })
     }
+    // Los de la misma zona primero (por si hay que priorizar en el futuro)
+    const zonaPaseo = (reservation.zone ?? "").trim().toLowerCase()
+    activos.sort((a, b) => {
+      const az = (a.zone ?? "").trim().toLowerCase() === zonaPaseo ? 0 : 1
+      const bz = (b.zone ?? "").trim().toLowerCase() === zonaPaseo ? 0 : 1
+      return az - bz
+    })
 
     // 3. Resuelve emails desde auth.users (no están en profiles)
-    const paseadorIds = profiles.map((p) => p.id)
     const emails: { email: string; name: string | null }[] = []
-    for (const id of paseadorIds) {
-      const { data: u } = await admin.auth.admin.getUserById(id)
+    for (const p of activos) {
+      const { data: u } = await admin.auth.admin.getUserById(p.id)
       const userEmail = u?.user?.email
-      if (userEmail) {
-        const name = profiles.find((p) => p.id === id)?.full_name ?? null
-        emails.push({ email: userEmail, name })
-      }
+      if (userEmail) emails.push({ email: userEmail, name: p.full_name ?? null })
     }
 
     if (emails.length === 0) {
@@ -128,9 +135,9 @@ export async function POST(req: NextRequest) {
 
     const sent = results.filter((r) => r.status === "fulfilled").length
 
-    // WhatsApp automático a paseadores con teléfono
+    // WhatsApp automático a paseadores con teléfono (solo activos)
     const waResults = await Promise.allSettled(
-      (profiles ?? [])
+      activos
         .filter((p) => p.phone)
         .map((p) =>
           sendWhatsAppTemplate("paseo_disponible", p.phone!, [
