@@ -205,7 +205,7 @@ export function AdminPanel({
     walker_id: "", // vacío = no asignar (queda pending_admin)
     plan_name: "Paseo de 1 día",
     dogs_count: 1,
-    price_mxn: 110,
+    price_mxn: 250,
     zone: "",
     pickup_address: "",
     dog_name: "",
@@ -305,7 +305,7 @@ export function AdminPanel({
 
     setReservations((prev) => [...(data as AdminReservation[]), ...prev])
     setNewPaseo({
-      user_id: "", manual_client_name: "", manual_client_phone: "", walker_id: "", plan_name: "Paseo de 1 día", dogs_count: 1, price_mxn: 110,
+      user_id: "", manual_client_name: "", manual_client_phone: "", walker_id: "", plan_name: "Paseo de 1 día", dogs_count: 1, price_mxn: 250,
       zone: "", pickup_address: "", dog_name: "", dog_size: "mediano", scheduled_at: "", notes: "",
     })
     setNewSlots([{ date: "", startHour: "09:00" }])
@@ -394,28 +394,31 @@ export function AdminPanel({
     }).catch(() => {})
   }
 
-  const makePublic = async (id: string) => {
+  // Cambia la visibilidad de un paseo a "public" (lo ven los paseadores) o
+  // "pending_admin" (privado, solo tú). Se puede cambiar cuantas veces quieras.
+  const setVisibility = async (target: AdminReservation, vis: "public" | "pending_admin") => {
     const supabase = createClient()
-    const target = reservations.find((r) => r.id === id)
-    // Paquetes: se abren completos (todas las fechas)
-    const query = supabase.from("reservations").update({ visibility: "public" })
-    const { error } = target?.package_id
+    // Paquetes: se abren/cierran completos (todas las fechas)
+    const query = supabase.from("reservations").update({ visibility: vis })
+    const { error } = target.package_id
       ? await query.eq("package_id", target.package_id)
-      : await query.eq("id", id)
+      : await query.eq("id", target.id)
     if (error) return alert(error.message)
     setReservations((prev) =>
       prev.map((r) =>
-        (target?.package_id ? r.package_id === target.package_id : r.id === id)
-          ? { ...r, visibility: "public" }
+        (target.package_id ? r.package_id === target.package_id : r.id === target.id)
+          ? { ...r, visibility: vis }
           : r,
       ),
     )
-    // Notifica a paseadores
-    fetch("/api/notify-paseadores", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reservationId: id }),
-    }).catch(() => {})
+    // Al hacerlo público, avisa a los paseadores de la zona (si sigue buscando)
+    if (vis === "public" && target.status === "buscando_paseador" && !target.walker_id) {
+      fetch("/api/notify-paseadores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: target.id }),
+      }).catch(() => {})
+    }
   }
 
   const togglePayment = async (id: string, paid: boolean) => {
@@ -1074,20 +1077,29 @@ export function AdminPanel({
                           </select>
                         </td>
                         <td className="py-3 pr-4">
-                          {canMakePublic ? (
-                            <button
-                              onClick={() => makePublic(r.id)}
-                              className="rounded-full bg-amber-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-amber-600"
-                            >
-                              🔒 Hacer público
-                            </button>
-                          ) : r.visibility === "pending_admin" ? (
-                            <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-bold text-muted-foreground">
-                              —
-                            </span>
+                          {/* Toggle público⇄privado — se puede cambiar cuando quieras
+                              mientras el paseo siga sin paseador asignado */}
+                          {!r.walker_id && (r.status === "buscando_paseador" || r.visibility === "pending_admin") ? (
+                            r.visibility === "public" ? (
+                              <button
+                                onClick={() => setVisibility(r, "pending_admin")}
+                                title="Está visible para paseadores. Click para cerrarlo (privado)."
+                                className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-200"
+                              >
+                                🌐 Público
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => setVisibility(r, "public")}
+                                title="Está privado (solo tú). Click para abrirlo a los paseadores."
+                                className="rounded-full bg-amber-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-amber-600"
+                              >
+                                🔒 Privado
+                              </button>
+                            )
                           ) : (
-                            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">
-                              🌐 Público
+                            <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-bold text-muted-foreground">
+                              {r.walker_id ? "asignado" : "—"}
                             </span>
                           )}
                         </td>
@@ -1384,15 +1396,15 @@ export function AdminPanel({
                   value={newPaseo.plan_name}
                   onChange={(e) => {
                     const v = e.target.value
-                    const price = v === "VIP 7 días" ? 950 : v === "Paseo semanal" ? 450 : v === "Paseo de 3 días" ? 300 : 110
+                    const price = v === "VIP 7 días" ? 950 : v === "Paseo semanal" ? 700 : v === "Paseo de 3 días" ? 500 : 250
                     setNewPaseo({ ...newPaseo, plan_name: v, price_mxn: price })
                     ensureSlotsLength(v)
                   }}
                   className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 >
-                  <option value="Paseo de 1 día">Paseo de 1 día — $110</option>
-                  <option value="Paseo de 3 días">Paseo de 3 días — $300</option>
-                  <option value="Paseo semanal">Paseo semanal — $450</option>
+                  <option value="Paseo de 1 día">Paseo de 1 día — $250</option>
+                  <option value="Paseo de 3 días">Paseo de 3 días — $500</option>
+                  <option value="Paseo semanal">Paseo semanal — $700</option>
                   <option value="VIP 7 días">VIP 7 días — $950</option>
                 </select>
               </div>
