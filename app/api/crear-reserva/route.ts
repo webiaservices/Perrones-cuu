@@ -119,7 +119,9 @@ export async function POST(req: NextRequest) {
         dog_size: dogSizes,
         dog_notes: dogSpecialNeeds,
         dog_id: dogs[0]?.id ?? null,
-        visibility: "public",
+        // Privado por default: el admin lo revisa y decide cuándo abrirlo a los
+        // paseadores con el botón de visibilidad de su panel.
+        visibility: "pending_admin",
         payment_status: "pendiente",
         responsibility_accepted: true,
         admin_fee_mxn: null, // null = comisión 30% automática

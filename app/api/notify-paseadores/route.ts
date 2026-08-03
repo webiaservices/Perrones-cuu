@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     // 1. Obtén la reserva con todos los datos para el correo
     const { data: reservation, error: resErr } = await admin
       .from("reservations")
-      .select("id, user_id, plan_name, dogs_count, price_mxn, status, scheduled_at, scheduled_until, zone, dog_name, dog_size, package_id, package_index, package_total, admin_fee_mxn")
+      .select("id, user_id, plan_name, dogs_count, price_mxn, status, visibility, scheduled_at, scheduled_until, zone, dog_name, dog_size, package_id, package_index, package_total, admin_fee_mxn")
       .eq("id", reservationId)
       .single()
 
@@ -43,6 +43,12 @@ export async function POST(req: NextRequest) {
 
     if (reservation.status !== "buscando_paseador") {
       return NextResponse.json({ notified: 0, reason: "no necesita notificación" })
+    }
+
+    // Si el paseo sigue privado, NADIE lo ve todavía: no se avisa a paseadores.
+    // El aviso sale cuando el admin lo hace público desde su panel.
+    if (reservation.visibility !== "public") {
+      return NextResponse.json({ notified: 0, reason: "el paseo aún es privado" })
     }
 
     // Paquetes: solo el paseo 1 dispara el correo (uno por paquete, no N).
