@@ -417,15 +417,41 @@ export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
 }
 
 export async function sendWhatsAppText(to: string, text: string): Promise<WhatsAppResponse> {
-  const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
-  const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
-  if (!PHONE_ID || !TOKEN) return { ok: false, skipped: true, reason: "WhatsApp no configurado" }
+  const con = getConexion()
+  if (!con) return { ok: false, skipped: true, reason: "WhatsApp no configurado" }
   const cleaned = ensureCountryCode(to)
 
+  // --- Twilio ---
+  if (con.proveedor === "twilio") {
+    try {
+      const body = new URLSearchParams({
+        To: `whatsapp:+${cleaned}`,
+        From: con.from!,
+        Body: text,
+      })
+      const res = await fetch(con.urlMensajes, { method: "POST", headers: con.headers, body })
+      const data = await res.json()
+      if (!res.ok) {
+        // 63016 = fuera de la ventana de 24h (hay que usar plantilla)
+        const fueraDeVentana = data?.code === 63016
+        return {
+          ok: false,
+          error: fueraDeVentana
+            ? "Pasaron más de 24h desde el último mensaje del cliente; WhatsApp ya no deja responder texto libre."
+            : data?.message ?? "Error",
+        }
+      }
+      return { ok: true, messageId: data?.sid ?? "" }
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : "Error" }
+    }
+  }
+
+  // --- Meta / 360dialog ---
   try {
-    const res = await fetch(`${API_BASE}/${PHONE_ID}/messages`, {
+    const res = await fetch(con.urlMensajes, {
       method: "POST",
-      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+      headers: con.headers,
       body: JSON.stringify({
         messaging_product: "whatsapp",
         to: cleaned,

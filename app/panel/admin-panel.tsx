@@ -197,6 +197,45 @@ export function AdminPanel({
     }
     setWaLoading(false)
   }
+  // Bandeja de WhatsApp: conversaciones con los clientes
+  type WaConv = {
+    phone: string
+    nombre: string | null
+    ultimo: string | null
+    puedeResponder: boolean
+    mensajes: { id: string; direccion: string; texto: string | null; created_at: string }[]
+  }
+  const [convs, setConvs] = useState<WaConv[]>([])
+  const [convsLoading, setConvsLoading] = useState(false)
+  const [convAbierta, setConvAbierta] = useState<string | null>(null)
+  const [respuesta, setRespuesta] = useState("")
+  const [enviando, setEnviando] = useState(false)
+  const loadConvs = async () => {
+    setConvsLoading(true)
+    try {
+      const res = await fetch("/api/whatsapp-inbox")
+      const data = await res.json()
+      setConvs(data.conversaciones ?? [])
+    } catch {
+      setConvs([])
+    }
+    setConvsLoading(false)
+  }
+  const responder = async (telefono: string) => {
+    if (!respuesta.trim()) return
+    setEnviando(true)
+    const res = await fetch("/api/whatsapp-inbox", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telefono, texto: respuesta }),
+    })
+    const data = await res.json()
+    setEnviando(false)
+    if (!data.ok) return alert(data.mensaje ?? data.error ?? "No se pudo enviar")
+    setRespuesta("")
+    loadConvs()
+  }
+
   const sendWaTest = async () => {
     setWaTestMsg(null)
     const res = await fetch("/api/whatsapp-status", {
@@ -936,7 +975,7 @@ export function AdminPanel({
             )}
           </button>
           <button
-            onClick={() => { setView("whatsapp"); loadWaStatus() }}
+            onClick={() => { setView("whatsapp"); loadWaStatus(); loadConvs() }}
             className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-all ${
               view === "whatsapp" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
             }`}
@@ -1462,6 +1501,93 @@ export function AdminPanel({
                 </div>
               </div>
             )}
+
+            {/* Bandeja de mensajes */}
+            <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-display text-xl font-extrabold">Mensajes de clientes</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Lo que te responden al WhatsApp del negocio llega aquí. Contesta desde esta pantalla.
+                  </p>
+                </div>
+                <Button onClick={loadConvs} disabled={convsLoading} variant="outline" className="rounded-full font-bold">
+                  {convsLoading ? "Cargando…" : "Actualizar"}
+                </Button>
+              </div>
+
+              {convs.length === 0 ? (
+                <p className="mt-5 rounded-2xl bg-secondary/40 px-4 py-6 text-center text-sm text-muted-foreground">
+                  Todavía no hay mensajes. Cuando un cliente conteste un WhatsApp, aparecerá aquí.
+                </p>
+              ) : (
+                <div className="mt-5 space-y-3">
+                  {convs.map((c) => {
+                    const abierta = convAbierta === c.phone
+                    const ultimoTexto = c.mensajes[c.mensajes.length - 1]?.texto ?? ""
+                    return (
+                      <div key={c.phone} className="overflow-hidden rounded-2xl border border-border">
+                        <button
+                          type="button"
+                          onClick={() => { setConvAbierta(abierta ? null : c.phone); setRespuesta("") }}
+                          className="flex w-full items-center justify-between gap-3 bg-secondary/40 px-4 py-3 text-left hover:bg-secondary/60"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-bold">{c.nombre || `+${c.phone}`}</p>
+                            <p className="truncate text-xs text-muted-foreground">{ultimoTexto}</p>
+                          </div>
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {c.ultimo ? new Date(c.ultimo).toLocaleString("es-MX", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Chihuahua" }) : ""}
+                          </span>
+                        </button>
+
+                        {abierta && (
+                          <div className="space-y-3 p-4">
+                            <div className="max-h-72 space-y-2 overflow-y-auto">
+                              {c.mensajes.map((m) => (
+                                <div
+                                  key={m.id}
+                                  className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                                    m.direccion === "entrante"
+                                      ? "bg-secondary"
+                                      : "ml-auto bg-primary/15 text-right"
+                                  }`}
+                                >
+                                  <p className="whitespace-pre-wrap">{m.texto}</p>
+                                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                                    {new Date(m.created_at).toLocaleString("es-MX", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Chihuahua" })}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+
+                            {c.puedeResponder ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Input
+                                  value={respuesta}
+                                  onChange={(e) => setRespuesta(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === "Enter") responder(c.phone) }}
+                                  placeholder="Escribe tu respuesta…"
+                                  className="min-w-48 flex-1"
+                                />
+                                <Button onClick={() => responder(c.phone)} disabled={enviando} className="rounded-full font-bold">
+                                  {enviando ? "Enviando…" : "Enviar"}
+                                </Button>
+                              </div>
+                            ) : (
+                              <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                                Pasaron más de 24h desde su último mensaje. WhatsApp ya no permite
+                                responder texto libre; escríbele desde tu WhatsApp normal.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* Prueba */}
             <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
