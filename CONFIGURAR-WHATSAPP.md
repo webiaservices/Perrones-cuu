@@ -183,3 +183,22 @@ Si algo falla, esa misma pantalla te dice qué está mal.
 - Twilio **no cobra mensualidad**, solo por mensaje (~$0.013 USD c/u).
 - ~300 mensajes/mes (50 clientes) ≈ **$80 MXN/mes**.
 - Las respuestas dentro de la ventana de 24h son **gratis**.
+
+---
+
+## ✅ YA HECHO — Content SIDs de las 4 plantillas
+
+Las plantillas ya están creadas en Twilio (Spanish MEX, tipo Text, con datos de
+ejemplo). Estos son los valores que van en Vercel:
+
+```
+TWILIO_TPL_PASEO_CONFIRMADO=HXc050b31d7209cbeedf552cb99024853d
+TWILIO_TPL_PASEADOR_ASIGNADO=HX6a77af54b38641e6919037217e9bbd29
+TWILIO_TPL_PASEO_DISPONIBLE=HXd3b86bd40b73ae342c49e40e5dd5eabc
+TWILIO_TPL_RECORDATORIO_PAGO=HX9d3a7dcae19e616219f0111a3ba51144
+```
+
+⚠️ **Falta mandarlas a aprobación de Meta.** Twilio no deja hacerlo hasta que
+exista el WhatsApp Sender (o sea, hasta tener el número de Endy dado de alta).
+Cuando el sender esté listo: entra a cada plantilla → **Save and submit for
+WhatsApp approval**.
