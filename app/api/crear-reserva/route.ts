@@ -19,6 +19,8 @@ export async function POST(req: NextRequest) {
     const pickupAddress = String(body.pickupAddress ?? "").trim()
     const tripNotes = String(body.tripNotes ?? "").trim()
     const acceptedResponsibility = body.acceptedResponsibility === true
+    // "semanal" = el dueño quiere que se repita cada semana; "una_vez" = solo esta
+    const recurrencia = body.recurrencia === "semanal" ? "semanal" : "una_vez"
 
     // 1. Autenticación por cookies de sesión
     const supa = await createClient()
@@ -70,7 +72,7 @@ export async function POST(req: NextRequest) {
     // 3. Los perros deben ser del usuario (RLS del cliente lo garantiza)
     const { data: dogs } = await supa
       .from("dogs")
-      .select("id, name, size, special_needs")
+      .select("id, name, size, breed, special_needs")
       .in("id", dogIds as string[])
     if (!dogs || dogs.length !== (dogIds as string[]).length) {
       return NextResponse.json({ error: "Uno de los perros seleccionados no existe. Recarga la página." }, { status: 400 })
@@ -81,6 +83,7 @@ export async function POST(req: NextRequest) {
 
     const dogNames = dogs.map((d) => d.name).join(", ")
     const dogSizes = dogs.map((d) => d.size).filter(Boolean).join("/")
+    const dogBreeds = dogs.map((d) => d.breed).filter(Boolean).join("/")
     const dogSpecialNeeds = dogs.map((d) => d.special_needs).filter(Boolean).join(". ")
     const baseNotes = `${dogs.length === 1 ? "Perro" : "Perros"}: ${dogNames}${dogSpecialNeeds ? `. ${dogSpecialNeeds}` : ""}`
     const notes = tripNotes ? `${baseNotes}. Notas del paseo: ${tripNotes}` : baseNotes
@@ -117,6 +120,8 @@ export async function POST(req: NextRequest) {
         pickup_address: pickupAddress,
         dog_name: dogNames,
         dog_size: dogSizes,
+        dog_breed: dogBreeds || null,
+        recurrencia,
         dog_notes: dogSpecialNeeds,
         dog_id: dogs[0]?.id ?? null,
         // Privado por default: el admin lo revisa y decide cuándo abrirlo a los

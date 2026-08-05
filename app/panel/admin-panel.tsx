@@ -46,6 +46,8 @@ export type AdminReservation = {
   pickup_address: string | null
   dog_name: string | null
   dog_size: string | null
+  dog_breed?: string | null
+  recurrencia?: string | null
   visibility?: string | null
   payment_status?: string | null
   manual_client_name?: string | null
@@ -270,6 +272,8 @@ export function AdminPanel({
   }
   const [updatingUser, setUpdatingUser] = useState<string | null>(null)
   const [assignFor, setAssignFor] = useState<AdminReservation | null>(null)
+  // Buscador dentro del modal de asignar paseador (son muchos para scrollear)
+  const [walkerSearch, setWalkerSearch] = useState("")
   const [assigning, setAssigning] = useState(false)
   const [creating, setCreating] = useState(false)
   const [clientMode, setClientMode] = useState<"registered" | "manual">("registered")
@@ -424,6 +428,62 @@ export function AdminPanel({
     () => users.filter((u) => u.role === "paseador" && !u.banned),
     [users],
   )
+  // Filtrados por el buscador del modal (nombre o zona); los de la misma zona
+  // de la reserva salen primero
+  const walkersFiltrados = useMemo(() => {
+    const q = walkerSearch.trim().toLowerCase()
+    const zonaReserva = (assignFor?.zone ?? "").trim().toLowerCase()
+    return availableWalkers
+      .filter((w) =>
+        !q ||
+        (w.full_name ?? "").toLowerCase().includes(q) ||
+        (w.zone ?? "").toLowerCase().includes(q),
+      )
+      .sort((a, b) => {
+        const az = (a.zone ?? "").trim().toLowerCase() === zonaReserva ? 0 : 1
+        const bz = (b.zone ?? "").trim().toLowerCase() === zonaReserva ? 0 : 1
+        if (az !== bz) return az - bz
+        return (a.full_name ?? "").localeCompare(b.full_name ?? "")
+      })
+  }, [availableWalkers, walkerSearch, assignFor])
+
+  /**
+   * Le quita el paseador a un paseo y lo regresa a "buscando paseador".
+   * Sirve cuando el paseador soltó el paseo o ya no puede: el admin lo libera
+   * y luego se lo asigna a otro (o lo deja para que alguien lo tome).
+   * No toca los días ya completados de un paquete.
+   */
+  const quitarPaseador = async (target: AdminReservation) => {
+    const paseadorAnterior = target.walker_id
+    const nombre = paseadorAnterior ? walkerMap[paseadorAnterior]?.name ?? "el paseador" : "el paseador"
+    if (!confirm(`¿Quitarle este paseo a ${nombre}? Vuelve a quedar sin paseador.`)) return
+    const supabase = createClient()
+    const query = supabase
+      .from("reservations")
+      .update({ status: "buscando_paseador", walker_id: null })
+    const { error } = target.package_id
+      ? await query.eq("package_id", target.package_id).not("status", "in", '("completada","cancelada")')
+      : await query.eq("id", target.id)
+    if (error) return alert(`Error: ${error.message}`)
+    setReservations((prev) =>
+      prev.map((r) =>
+        (target.package_id
+          ? r.package_id === target.package_id && r.status !== "completada" && r.status !== "cancelada"
+          : r.id === target.id)
+          ? { ...r, walker_id: null, status: "buscando_paseador" }
+          : r,
+      ),
+    )
+    // Avisa al paseador que le quitaron el paseo (ya se limpió walker_id en la
+    // base, por eso se manda cuál era)
+    if (paseadorAnterior) {
+      fetch("/api/notify-paseador-cancelado", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: target.id, kind: "reasignado", walkerId: paseadorAnterior }),
+      }).catch(() => {})
+    }
+  }
 
   const assignWalker = async (reservationId: string, walkerId: string) => {
     setAssigning(true)
@@ -732,12 +792,14 @@ export function AdminPanel({
         : [r],
     )
     const rows = [
-      ["Fecha", "Hora", "Perro", "Tamaño", "Paseador", "Zona", "Duración (min)", "Precio MXN", "Paquete", "Estado", "Dueño"],
+      ["Fecha", "Hora", "Perro", "Raza", "Tamaño", "Repetir", "Paseador", "Zona", "Duración (min)", "Precio MXN", "Paquete", "Estado", "Dueño"],
       ...expanded.map((r) => [
         r.scheduled_at ? new Date(r.scheduled_at).toLocaleDateString("es-MX") : "",
         r.scheduled_at ? fmtTime(r.scheduled_at) : "",
         r.dog_name ?? "",
+        r.dog_breed ?? "",
         r.dog_size ?? "",
+        r.recurrencia === "semanal" ? "Semanal" : "Una vez",
         r.walker_id ? walkerMap[r.walker_id]?.name ?? "" : "",
         r.zone ?? "",
         String(durationMin(r.scheduled_at, r.scheduled_until)),
@@ -1030,6 +1092,7 @@ export function AdminPanel({
                     <th className="pb-3 pr-4">Duración</th>
                     <th className="pb-3 pr-4">Precio total</th>
                     <th className="pb-3 pr-4">Reparto</th>
+                    <th className="pb-3 pr-4">Repetir</th>
                     <th className="pb-3 pr-4">Estado</th>
                     <th className="pb-3 pr-4">Visibilidad</th>
                     <th className="pb-3">Pago</th>
@@ -1038,7 +1101,7 @@ export function AdminPanel({
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-8 text-center text-muted-foreground">
+                      <td colSpan={12} className="py-8 text-center text-muted-foreground">
                         Sin reservas con esos filtros.
                       </td>
                     </tr>
@@ -1078,7 +1141,11 @@ export function AdminPanel({
                         </td>
                         <td className="py-3 pr-4">
                           {r.dog_name ?? "—"}
-                          {r.dog_size && <div className="text-xs text-muted-foreground">{r.dog_size}</div>}
+                          {(r.dog_size || r.dog_breed) && (
+                            <div className="text-xs text-muted-foreground">
+                              {[r.dog_breed, r.dog_size].filter(Boolean).join(" · ")}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 pr-4">
                           {r.manual_client_name ?? ownerMap[r.user_id]?.name ?? "—"}
@@ -1093,10 +1160,25 @@ export function AdminPanel({
                             <>
                               {walkerMap[r.walker_id]?.name ?? "Paseador"}
                               <div className="text-[10px] text-muted-foreground">ID: {r.walker_id.slice(0, 8)}</div>
+                              {/* Si soltó el paseo o no puede, se le puede quitar y dar a otro */}
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                <button
+                                  onClick={() => { setWalkerSearch(""); setAssignFor(r) }}
+                                  className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary hover:bg-primary/25"
+                                >
+                                  Cambiar
+                                </button>
+                                <button
+                                  onClick={() => quitarPaseador(r)}
+                                  className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-bold text-destructive hover:bg-destructive/20"
+                                >
+                                  Quitar
+                                </button>
+                              </div>
                             </>
                           ) : (
                             <button
-                              onClick={() => setAssignFor(r)}
+                              onClick={() => { setWalkerSearch(""); setAssignFor(r) }}
                               className="rounded-full bg-primary/15 px-2.5 py-1 text-xs font-bold text-primary hover:bg-primary/25"
                             >
                               + Asignar
@@ -1146,6 +1228,17 @@ export function AdminPanel({
                                 Paseador: ${walkerShareFor(r).toLocaleString()}
                               </div>
                             </button>
+                          )}
+                        </td>
+                        <td className="py-3 pr-4">
+                          {r.recurrencia === "semanal" ? (
+                            <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-800">
+                              🔁 Semanal
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-bold text-muted-foreground">
+                              Una vez
+                            </span>
                           )}
                         </td>
                         <td className="py-3 pr-4">
@@ -1789,18 +1882,33 @@ export function AdminPanel({
             <h3 className="font-display text-xl font-extrabold">Asignar paseador</h3>
             <p className="mt-1 text-sm text-muted-foreground">
               Reserva en <b>{assignFor.zone ?? "—"}</b> · {assignFor.scheduled_at ? new Date(assignFor.scheduled_at).toLocaleDateString("es-MX") : ""}
+              {assignFor.walker_id && (
+                <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                  Ya asignado · elige otro para reemplazarlo
+                </span>
+              )}
             </p>
-            <div className="mt-4 max-h-80 overflow-y-auto">
-              {availableWalkers.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">No hay paseadores activos.</p>
+            <Input
+              autoFocus
+              value={walkerSearch}
+              onChange={(e) => setWalkerSearch(e.target.value)}
+              placeholder="Buscar por nombre o zona…"
+              className="mt-3"
+            />
+            <div className="mt-3 max-h-80 overflow-y-auto">
+              {walkersFiltrados.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  {availableWalkers.length === 0 ? "No hay paseadores activos." : "Ningún paseador coincide con la búsqueda."}
+                </p>
               ) : (
                 <ul className="space-y-2">
-                  {availableWalkers.map((w) => {
+                  {walkersFiltrados.map((w) => {
                     const sameZone = w.zone === assignFor.zone
+                    const esElActual = w.id === assignFor.walker_id
                     return (
                       <li key={w.id}>
                         <button
-                          disabled={assigning}
+                          disabled={assigning || esElActual}
                           onClick={() => assignWalker(assignFor.id, w.id)}
                           className="flex w-full items-center justify-between rounded-2xl border border-border p-3 text-left transition-colors hover:bg-secondary"
                         >
@@ -1809,9 +1917,10 @@ export function AdminPanel({
                             <p className="text-xs text-muted-foreground">
                               Zona: {w.zone ?? "—"}
                               {sameZone && <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary">Misma zona</span>}
+                              {esElActual && <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-bold">Asignado ahora</span>}
                             </p>
                           </div>
-                          <span className="text-xs font-bold text-primary">Asignar →</span>
+                          <span className="text-xs font-bold text-primary">{esElActual ? "" : "Asignar →"}</span>
                         </button>
                       </li>
                     )

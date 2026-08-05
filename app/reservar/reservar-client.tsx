@@ -66,6 +66,8 @@ export function ReservarClient({
   const [tripNotes, setTripNotes] = useState("")
   // Aviso de responsabilidad (obligatorio antes de confirmar)
   const [acceptedResponsibility, setAcceptedResponsibility] = useState(false)
+  // ¿El paseo es de una sola vez o se repite cada semana?
+  const [recurrencia, setRecurrencia] = useState<"una_vez" | "semanal">("una_vez")
 
   const dogsCount = selectedDogIds.length
 
@@ -200,6 +202,7 @@ export function ReservarClient({
           pickupAddress,
           tripNotes,
           acceptedResponsibility,
+          recurrencia,
         }),
       })
       const result = await res.json()
@@ -542,6 +545,36 @@ export function ReservarClient({
                       </div>
                     </>
                   )}
+                  {/* ¿Es un paseo de una vez o quiere que se repita cada semana? */}
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>¿Quieres que se repita? *</Label>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {[
+                        { v: "una_vez" as const, t: "Solo esta vez", d: "Un paseo y ya" },
+                        { v: "semanal" as const, t: "Cada semana", d: "Repetir estos días semanalmente" },
+                      ].map((op) => (
+                        <button
+                          key={op.v}
+                          type="button"
+                          onClick={() => setRecurrencia(op.v)}
+                          className={`rounded-2xl border-2 p-4 text-left transition-all ${
+                            recurrencia === op.v
+                              ? "border-primary bg-primary/10 ring-2 ring-primary/30"
+                              : "border-border bg-card hover:border-primary/40"
+                          }`}
+                        >
+                          <p className="font-extrabold">{op.t}</p>
+                          <p className="text-xs text-muted-foreground">{op.d}</p>
+                        </button>
+                      ))}
+                    </div>
+                    {recurrencia === "semanal" && (
+                      <p className="rounded-xl bg-accent/30 px-3 py-2 text-xs text-accent-foreground">
+                        Agendamos esta semana y te contactamos para repetir las siguientes.
+                      </p>
+                    )}
+                  </div>
+
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="zone">Zona *</Label>
                     <Select value={zone} onValueChange={setZone}>
