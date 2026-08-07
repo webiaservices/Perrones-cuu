@@ -315,7 +315,9 @@ function SignUpForm() {
             <div className="flex flex-col gap-2 rounded-2xl bg-muted/50 p-3">
               <Label htmlFor="idFile">Identificación oficial</Label>
               <p className="text-xs text-muted-foreground">
-                Foto de tu INE, pasaporte o licencia. Nos sirve para saber quién nos confía a su perrito.
+                Foto de tu INE, pasaporte o licencia. Con ella dejamos constancia de quién leyó y aceptó el
+                contrato de servicios, y de quién responde si alguna de las partes no lo cumple —{" "}
+                <b className="text-foreground">por eso vale la pena leerlo con calma antes de aceptar</b>.
                 Es privada: solo la ve Perrones Cuu, nunca los paseadores.
               </p>
               <Input
