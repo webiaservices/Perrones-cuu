@@ -34,7 +34,14 @@ export default async function PrivacidadPage() {
             <h2 className="mt-6 font-display text-xl font-extrabold">2. Qué datos recabamos</h2>
             <p>De clientes (dueños) y paseadores: nombre, teléfono, correo, contraseña encriptada, zona, datos del
               perro (nombre, raza, tamaño, necesidades especiales) y dirección de recogida. De paseadores también
-              horarios disponibles.
+              horarios disponibles y datos bancarios para su compensación.
+            </p>
+            <p className="mt-3">De los clientes (dueños) recabamos además una <b>identificación oficial</b> (INE,
+              pasaporte o licencia) al momento del registro. Es un dato personal que tratamos con cuidado especial:
+              se guarda cifrado en un almacenamiento privado, <b>solo tiene acceso el equipo de Perrones Cuu</b>, los
+              paseadores nunca la ven, y no se comparte con terceros. Su finalidad es acreditar la identidad de quien
+              nos confía a su perro y respaldar la responsabilidad por daños prevista en el contrato del cliente.
+              Se elimina cuando la cuenta se da de baja.
             </p>
 
             <h2 className="mt-6 font-display text-xl font-extrabold">3. Para qué los usamos</h2>

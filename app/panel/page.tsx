@@ -32,17 +32,21 @@ export default async function PanelPage() {
     .order("created_at", { ascending: false })
 
   // For staff, resolve owner names
-  let ownerMap: Record<string, { name: string | null; phone: string | null }> = {}
+  let ownerMap: Record<string, { name: string | null; phone: string | null; email: string | null }> = {}
   let walkerMap: Record<string, { name: string | null }> = {}
   if (isStaff && reservations && reservations.length > 0) {
     const ownerIds = Array.from(new Set(reservations.map((r) => r.user_id)))
     const walkerIds = Array.from(new Set(reservations.map((r) => r.walker_id).filter(Boolean) as string[]))
     const allIds = Array.from(new Set([...ownerIds, ...walkerIds]))
-    const { data: people } = await supabase.from("profiles").select("id, full_name, phone").in("id", allIds)
+    // `email` lo agregó la migración 0020 — antes solo vivía en auth.users
+    const { data: people } = await supabase.from("profiles").select("id, full_name, phone, email").in("id", allIds)
     const peopleMap = Object.fromEntries(
-      (people ?? []).map((o) => [o.id, { name: o.full_name as string | null, phone: o.phone as string | null }]),
+      (people ?? []).map((o) => [
+        o.id,
+        { name: o.full_name as string | null, phone: o.phone as string | null, email: o.email as string | null },
+      ]),
     )
-    ownerMap = Object.fromEntries(ownerIds.map((id) => [id, peopleMap[id] ?? { name: null, phone: null }]))
+    ownerMap = Object.fromEntries(ownerIds.map((id) => [id, peopleMap[id] ?? { name: null, phone: null, email: null }]))
     walkerMap = Object.fromEntries(walkerIds.map((id) => [id, { name: peopleMap[id]?.name ?? null }]))
   }
 
@@ -50,7 +54,7 @@ export default async function PanelPage() {
   if (role === "admin") {
     const { data: allUsers } = await supabase
       .from("profiles")
-      .select("id, full_name, phone, role, zone, banned, created_at")
+      .select("id, full_name, phone, email, id_document_path, role, zone, banned, created_at")
       .order("created_at", { ascending: false })
     const { data: reviews } = await supabase
       .from("reviews")

@@ -120,6 +120,8 @@ export type AdminUser = {
   id: string
   full_name: string | null
   phone: string | null
+  email: string | null
+  id_document_path: string | null
   role: string
   zone: string | null
   banned?: boolean
@@ -149,7 +151,7 @@ export function AdminPanel({
   fullName: string | null
   email: string
   reservations: AdminReservation[]
-  ownerMap: Record<string, { name: string | null; phone: string | null }>
+  ownerMap: Record<string, { name: string | null; phone: string | null; email: string | null }>
   walkerMap: Record<string, { name: string | null }>
   initialAdminPct?: number | null
   allUsers?: AdminUser[]
@@ -577,6 +579,30 @@ export function AdminPanel({
     setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, role: newRole } : u)))
   }
 
+  /**
+   * Abre la identificación del usuario en otra pestaña. El bucket es privado,
+   * así que el servidor firma un link que expira a los 5 minutos.
+   * Se abre la pestaña ANTES del fetch: si se abre después, Safari la bloquea
+   * por no venir de un clic directo.
+   */
+  const verIdentificacion = async (id: string) => {
+    const tab = window.open("", "_blank")
+    try {
+      const res = await fetch(`/api/ver-identificacion?userId=${id}`)
+      const json = await res.json()
+      if (!res.ok || !json.url) {
+        tab?.close()
+        alert(json.error ?? "No se pudo abrir la identificación.")
+        return
+      }
+      if (tab) tab.location.href = json.url
+      else window.location.href = json.url
+    } catch {
+      tab?.close()
+      alert("No se pudo abrir la identificación.")
+    }
+  }
+
   const toggleBan = async (id: string, banned: boolean) => {
     if (!confirm(banned ? "¿Banear este usuario?" : "¿Reactivar este usuario?")) return
     setUpdatingUser(id)
@@ -792,7 +818,7 @@ export function AdminPanel({
         : [r],
     )
     const rows = [
-      ["Fecha", "Hora", "Perro", "Raza", "Tamaño", "Repetir", "Paseador", "Zona", "Duración (min)", "Precio MXN", "Paquete", "Estado", "Dueño"],
+      ["Fecha", "Hora", "Perro", "Raza", "Tamaño", "Repetir", "Paseador", "Zona", "Duración (min)", "Precio MXN", "Paquete", "Estado", "Dueño", "Teléfono", "Correo"],
       ...expanded.map((r) => [
         r.scheduled_at ? new Date(r.scheduled_at).toLocaleDateString("es-MX") : "",
         r.scheduled_at ? fmtTime(r.scheduled_at) : "",
@@ -807,6 +833,8 @@ export function AdminPanel({
         r.package_id ? `${r.package_index ?? 1} de ${r.package_total ?? 1}` : "",
         STATUS_LABELS[r.status] ?? r.status,
         r.manual_client_name ?? ownerMap[r.user_id]?.name ?? "",
+        r.manual_client_phone ?? ownerMap[r.user_id]?.phone ?? "",
+        ownerMap[r.user_id]?.email ?? "",
       ]),
     ]
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n")
@@ -1154,6 +1182,12 @@ export function AdminPanel({
                               {r.manual_client_phone ?? ownerMap[r.user_id]?.phone}
                             </div>
                           )}
+                          {/* Los clientes manuales no tienen cuenta, así que no traen correo */}
+                          {ownerMap[r.user_id]?.email && (
+                            <div className="text-xs text-muted-foreground break-all">
+                              {ownerMap[r.user_id]?.email}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 pr-4">
                           {r.walker_id ? (
@@ -1433,7 +1467,10 @@ export function AdminPanel({
                             <option value="admin">Admin</option>
                           </select>
                         </td>
-                        <td className="py-3 pr-4 text-muted-foreground">{u.phone ?? "—"}</td>
+                        <td className="py-3 pr-4 text-muted-foreground">
+                          {u.phone ?? "—"}
+                          {u.email && <div className="text-xs break-all">{u.email}</div>}
+                        </td>
                         <td className="py-3 pr-4 text-muted-foreground">{u.zone ?? "—"}</td>
                         <td className="py-3 pr-4">
                           {u.banned ? (
@@ -1443,15 +1480,25 @@ export function AdminPanel({
                           )}
                         </td>
                         <td className="py-3">
-                          <button
-                            disabled={updatingUser === u.id}
-                            onClick={() => toggleBan(u.id, !u.banned)}
-                            className={`rounded-full px-3 py-1 text-xs font-bold transition-colors ${
-                              u.banned ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200" : "bg-destructive/15 text-destructive hover:bg-destructive/25"
-                            }`}
-                          >
-                            {u.banned ? "Reactivar" : "Banear"}
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            {u.id_document_path && (
+                              <button
+                                onClick={() => verIdentificacion(u.id)}
+                                className="rounded-full bg-primary/15 px-3 py-1 text-xs font-bold text-primary transition-colors hover:bg-primary/25"
+                              >
+                                Ver ID
+                              </button>
+                            )}
+                            <button
+                              disabled={updatingUser === u.id}
+                              onClick={() => toggleBan(u.id, !u.banned)}
+                              className={`rounded-full px-3 py-1 text-xs font-bold transition-colors ${
+                                u.banned ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200" : "bg-destructive/15 text-destructive hover:bg-destructive/25"
+                              }`}
+                            >
+                              {u.banned ? "Reactivar" : "Banear"}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -2005,7 +2052,7 @@ function FragmentRow({
   reservationsByDay: Record<string, AdminReservation[]>
   walkerColor: Record<string, string>
   walkerMap: Record<string, { name: string | null }>
-  ownerMap: Record<string, { name: string | null; phone: string | null }>
+  ownerMap: Record<string, { name: string | null; phone: string | null; email: string | null }>
 }) {
   return (
     <>

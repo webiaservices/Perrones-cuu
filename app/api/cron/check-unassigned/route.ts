@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { BRAND } from "@/lib/constants"
+import { EMAIL_LOGO_IMG } from "@/lib/email-brand"
 
 const TIMEOUT_MINUTES = 60
 
@@ -78,6 +79,7 @@ export async function GET(req: NextRequest) {
     <div style="max-width:560px;margin:0 auto;padding:32px 20px;">
       <div style="background:#fff;border-radius:28px;border:1px solid #d5ebe8;overflow:hidden;">
         <div style="background:#e76f51;padding:24px;text-align:center;color:#fff;">
+          ${EMAIL_LOGO_IMG}
           <p style="margin:0;font-size:14px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">${BRAND.name}</p>
           <h1 style="margin:8px 0 0;font-size:24px;font-weight:800;">⚠️ Paseos sin asignar</h1>
         </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { BRAND, walkerPayoutFor } from "@/lib/constants"
+import { EMAIL_LOGO_IMG } from "@/lib/email-brand"
 import { getCaller } from "@/lib/api-auth"
 
 /**
@@ -53,12 +54,15 @@ export async function POST(req: NextRequest) {
     if (r.manual_client_name) {
       clienteInfo = `${r.manual_client_name}${r.manual_client_phone ? ` · ${r.manual_client_phone}` : ""} (cliente manual)`
     } else {
+      // `email` lo agregó la migración 0020
       const { data: owner } = await admin
         .from("profiles")
-        .select("full_name, phone")
+        .select("full_name, phone, email")
         .eq("id", r.user_id)
         .single()
-      clienteInfo = `${owner?.full_name ?? "Sin nombre"}${owner?.phone ? ` · ${owner.phone}` : ""}`
+      clienteInfo = [owner?.full_name ?? "Sin nombre", owner?.phone, owner?.email]
+        .filter(Boolean)
+        .join(" · ")
     }
 
     // Buscar emails de todos los admins
@@ -99,6 +103,7 @@ export async function POST(req: NextRequest) {
   <div style="max-width:600px;margin:0 auto;padding:32px 20px;">
     <div style="background:#fff;border-radius:28px;border:1px solid #d5ebe8;overflow:hidden;">
       <div style="background:#3DCABD;padding:24px;text-align:center;color:#fff;">
+        ${EMAIL_LOGO_IMG}
         <p style="margin:0;font-size:14px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">${BRAND.name}</p>
         <h1 style="margin:8px 0 0;font-size:22px;font-weight:800;">Un paseador acepto un paseo</h1>
       </div>

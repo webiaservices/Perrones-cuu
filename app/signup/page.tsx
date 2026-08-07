@@ -48,6 +48,7 @@ function SignUpForm() {
   const [bankClabe, setBankClabe] = useState("")
   const [birthDate, setBirthDate] = useState("")
   const [bankAccount, setBankAccount] = useState("")
+  const [idFile, setIdFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -74,6 +75,16 @@ function SignUpForm() {
     if (role === "paseador" && !zone) {
       setError("Selecciona tu zona de preferencia.")
       return
+    }
+    if (role === "dueno") {
+      if (!idFile) {
+        setError("Sube una foto de tu identificación oficial (INE, pasaporte o licencia).")
+        return
+      }
+      if (idFile.size > 5 * 1024 * 1024) {
+        setError("La identificación pesa más de 5 MB. Tómale una foto más ligera.")
+        return
+      }
     }
 
     setLoading(true)
@@ -103,6 +114,25 @@ function SignUpForm() {
         },
       })
       if (signErr) throw signErr
+
+      // La identificación se sube por el servidor: cuando la confirmación de
+      // correo está activada todavía no hay sesión y Storage rechazaría al
+      // navegador. Si esto falla, el registro NO se cae — el admin puede
+      // pedírsela después desde el panel.
+      if (role === "dueno" && idFile && data.user?.id) {
+        try {
+          const fd = new FormData()
+          fd.append("userId", data.user.id)
+          fd.append("file", idFile)
+          const up = await fetch("/api/subir-identificacion", { method: "POST", body: fd })
+          if (!up.ok) {
+            const j = await up.json().catch(() => ({}))
+            console.warn("[signup] identificación no guardada:", j?.error)
+          }
+        } catch (upErr) {
+          console.warn("[signup] identificación no guardada:", upErr)
+        }
+      }
 
       // If email confirmation is OFF, we already have a session: record the contract now.
       if (data.session && needsContract) {
@@ -278,6 +308,30 @@ function SignUpForm() {
                 </div>
               </div>
             </>
+          )}
+
+          {/* Identificación oficial — solo dueños (punto 7 del contrato) */}
+          {role === "dueno" && (
+            <div className="flex flex-col gap-2 rounded-2xl bg-muted/50 p-3">
+              <Label htmlFor="idFile">Identificación oficial</Label>
+              <p className="text-xs text-muted-foreground">
+                Foto de tu INE, pasaporte o licencia. Nos sirve para saber quién nos confía a su perrito.
+                Es privada: solo la ve Perrones Cuu, nunca los paseadores.
+              </p>
+              <Input
+                id="idFile"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                required
+                onChange={(e) => setIdFile(e.target.files?.[0] ?? null)}
+                className="cursor-pointer file:mr-3 file:rounded-full file:border-0 file:bg-primary/15 file:px-3 file:py-1 file:text-xs file:font-bold file:text-primary"
+              />
+              {idFile && (
+                <p className="text-xs font-medium text-primary">
+                  ✓ {idFile.name} ({Math.round(idFile.size / 1024)} KB)
+                </p>
+              )}
+            </div>
           )}
 
           {/* Auth */}

@@ -1,4 +1,7 @@
-export const CONTRACT_VERSION = "v1"
+// v2 (ago 2026): se agregó la responsabilidad del dueño por daños de su perro
+// y la identificación oficial. Las aceptaciones anteriores quedan guardadas
+// como v1 en la tabla `contracts` — no se reescriben.
+export const CONTRACT_VERSION = "v2"
 
 export const CLIENT_CONTRACT = `CONTRATO DE PRESTACIÓN DE SERVICIOS — CLIENTE (DUEÑO)
 
@@ -10,11 +13,15 @@ export const CLIENT_CONTRACT = `CONTRATO DE PRESTACIÓN DE SERVICIOS — CLIENTE
 
 4. Seguro. Cada paseo incluye una cobertura básica para tu perrito durante el servicio.
 
-5. Cuidado responsable. El dueño declara que su perro cuenta con vacunas vigentes y describe con veracidad el temperamento y necesidades especiales del animal.
+5. Cuidado responsable. El dueño declara que su perro cuenta con vacunas vigentes y describe con veracidad el temperamento y necesidades especiales del animal. En particular, se compromete a informar si el perro ha mordido o ha mostrado conductas agresivas antes.
 
-6. Cancelaciones. Podrás cancelar un paseo desde tu panel antes de que inicie.
+6. Responsabilidad por daños. El dueño es el único responsable de los daños que su perro cause durante el paseo a terceros —incluyendo al paseador, a otras personas, a otros animales o a la propiedad ajena—, así como de los gastos médicos, veterinarios o de reparación que se deriven. La cobertura del punto 4 protege al perro durante el servicio; no cubre los daños que el perro ocasione. Omitir o falsear información sobre el temperamento del animal (punto 5) deja la responsabilidad enteramente del lado del dueño.
 
-7. Datos. Tus datos se usan únicamente para coordinar el servicio.
+7. Identificación. Para dar de alta la cuenta, el dueño sube una identificación oficial vigente (INE, pasaporte o licencia). Se usa únicamente para verificar su identidad y respaldar el punto 6. Se guarda de forma privada, no se comparte con los paseadores ni con terceros, y se elimina si la cuenta se da de baja.
+
+8. Cancelaciones. Podrás cancelar un paseo desde tu panel antes de que inicie.
+
+9. Datos. Tus datos se usan únicamente para coordinar el servicio.
 
 Al aceptar, confirmas que has leído y estás de acuerdo con este contrato (versión ${CONTRACT_VERSION}).`
 
