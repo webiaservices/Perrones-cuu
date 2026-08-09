@@ -6,9 +6,11 @@ export function LogoCircle({ className = "" }: { className?: string }) {
     <span className={`block overflow-hidden rounded-full ${className}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/perrones-logo.png"
+        src="/perrones-logo.webp"
         alt="Logotipo de Perrones Cuu"
         className="h-full w-full object-cover"
+        width={1600}
+        height={900}
         style={{ transform: "scale(1.12)", objectPosition: "44% 50%" }}
       />
     </span>

@@ -301,3 +301,22 @@
     animation: spin-slow 45s linear infinite reverse;
   }
 }
+
+/* Reveal "immediate": misma animación de entrada que <Reveal>, pero disparada
+   por CSS al cargar en vez de por el IntersectionObserver dentro de useEffect.
+   Lo de arriba del pliegue no puede quedarse en opacity-0 esperando a que
+   hidrate React (eran ~4s de render delay en el LCP de la home).
+   Valores calcados de reveal.tsx: 900ms, cubic-bezier(0.22,1,0.36,1),
+   translate 2rem (= translate-y-8), scale .95, blur 2px. */
+@keyframes reveal-now-in {
+  from { opacity: 0; filter: blur(2px); transform: var(--reveal-now-from, translateY(2rem)); }
+  to   { opacity: 1; filter: blur(0);   transform: none; }
+}
+.reveal-now--bottom { --reveal-now-from: translateY(2rem); }
+.reveal-now--left   { --reveal-now-from: translateX(-2rem); }
+.reveal-now--right  { --reveal-now-from: translateX(2rem); }
+.reveal-now--scale  { --reveal-now-from: scale(0.95); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .reveal-now { animation: reveal-now-in 900ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+}

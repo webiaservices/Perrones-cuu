@@ -8,18 +8,27 @@ type RevealProps = {
   delay?: number
   from?: "bottom" | "left" | "right" | "scale"
   className?: string
+  /**
+   * Para lo que ya está arriba del pliegue. La animación corre por CSS al
+   * cargar, sin esperar a que hidrate React: si no, el contenido se queda en
+   * opacity-0 hasta que baja y se ejecuta todo el bundle (eran ~4s de LCP en
+   * la home). Misma duración, misma curva y mismo delay que la versión JS.
+   */
+  immediate?: boolean
 }
 
 /**
  * Anima sus hijos cuando entran al viewport.
  * - `from`: dirección desde la que aparece
  * - `delay`: ms antes de animar (para escalonar varios)
+ * - `immediate`: anima al cargar por CSS (para contenido arriba del pliegue)
  */
-export function Reveal({ children, delay = 0, from = "bottom", className }: RevealProps) {
+export function Reveal({ children, delay = 0, from = "bottom", className, immediate = false }: RevealProps) {
   const ref = useRef<HTMLDivElement | null>(null)
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
+    if (immediate) return
     const el = ref.current
     if (!el) return
     // Respeta prefers-reduced-motion
@@ -41,7 +50,7 @@ export function Reveal({ children, delay = 0, from = "bottom", className }: Reve
     )
     obs.observe(el)
     return () => obs.disconnect()
-  }, [])
+  }, [immediate])
 
   const initial = {
     bottom: "translate-y-8",
@@ -49,6 +58,14 @@ export function Reveal({ children, delay = 0, from = "bottom", className }: Reve
     right: "translate-x-8",
     scale: "scale-95",
   }[from]
+
+  if (immediate) {
+    return (
+      <div ref={ref} style={{ animationDelay: `${delay}ms` }} className={cn("reveal-now", `reveal-now--${from}`, className)}>
+        {children}
+      </div>
+    )
+  }
 
   return (
     <div

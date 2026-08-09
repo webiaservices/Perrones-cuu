@@ -111,7 +111,7 @@ export default async function HomePage() {
           <div aria-hidden className="pointer-events-none absolute top-40 -right-32 h-[28rem] w-[28rem] animate-blob rounded-full bg-primary/15 blur-3xl" style={{ animationDelay: "3s" }} />
 
           <div className="relative mx-auto grid max-w-6xl items-center gap-12 md:grid-cols-2">
-            <Reveal from="left">
+            <Reveal from="left" immediate>
               <span className="inline-flex items-center gap-2 rounded-full bg-accent/60 px-4 py-1.5 text-sm font-bold text-accent-foreground transition-transform hover:scale-105">
                 <MapPin className="h-4 w-4" />
                 {BRAND.city}
@@ -164,7 +164,7 @@ export default async function HomePage() {
               </div>
             </Reveal>
 
-            <Reveal from="right" delay={120}>
+            <Reveal from="right" delay={120} immediate>
               <div className="relative mx-auto flex aspect-square w-full max-w-[520px] items-center justify-center">
                 {/* Anillos dashed concéntricos */}
                 <div aria-hidden className="absolute inset-0 rounded-full border-2 border-dashed border-primary/30 ring-rotate" />
