@@ -1118,12 +1118,12 @@ export function AdminPanel({
                     <th className="pb-3 pr-4">Paseador</th>
                     <th className="pb-3 pr-4">Zona</th>
                     <th className="pb-3 pr-4">Duración</th>
-                    <th className="pb-3 pr-4">Precio total</th>
-                    <th className="pb-3 pr-4">Reparto</th>
-                    <th className="pb-3 pr-4">Repetir</th>
-                    <th className="pb-3 pr-4">Estado</th>
-                    <th className="pb-3 pr-4">Visibilidad</th>
-                    <th className="pb-3">Pago</th>
+                    <th className="whitespace-nowrap pb-3 pr-4">Precio total</th>
+                    <th className="whitespace-nowrap pb-3 pr-4">Reparto</th>
+                    <th className="whitespace-nowrap pb-3 pr-4">Repetir</th>
+                    <th className="whitespace-nowrap pb-3 pr-4">Estado</th>
+                    <th className="whitespace-nowrap pb-3 pr-4">Visibilidad</th>
+                    <th className="whitespace-nowrap pb-3">Pago</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1265,12 +1265,14 @@ export function AdminPanel({
                           )}
                         </td>
                         <td className="py-3 pr-4">
+                          {/* whitespace-nowrap: si no, la columna angosta parte
+                              "Una vez" en dos renglones y se ve descuadrado */}
                           {r.recurrencia === "semanal" ? (
-                            <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-800">
+                            <span className="inline-block whitespace-nowrap rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-800">
                               🔁 Semanal
                             </span>
                           ) : (
-                            <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-bold text-muted-foreground">
+                            <span className="inline-block whitespace-nowrap rounded-full bg-secondary px-2.5 py-1 text-xs font-bold text-muted-foreground">
                               Una vez
                             </span>
                           )}
@@ -1295,7 +1297,7 @@ export function AdminPanel({
                               <button
                                 onClick={() => setVisibility(r, "pending_admin")}
                                 title="Está visible para paseadores. Click para cerrarlo (privado)."
-                                className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-200"
+                                className="whitespace-nowrap rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-200"
                               >
                                 🌐 Público
                               </button>
@@ -1303,7 +1305,7 @@ export function AdminPanel({
                               <button
                                 onClick={() => setVisibility(r, "public")}
                                 title="Está privado (solo tú). Click para abrirlo a los paseadores."
-                                className="rounded-full bg-amber-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-amber-600"
+                                className="whitespace-nowrap rounded-full bg-amber-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-amber-600"
                               >
                                 🔒 Privado
                               </button>
@@ -1436,7 +1438,7 @@ export function AdminPanel({
                     <th className="pb-3 pr-4">Rol</th>
                     <th className="pb-3 pr-4">Teléfono</th>
                     <th className="pb-3 pr-4">Zona</th>
-                    <th className="pb-3 pr-4">Estado</th>
+                    <th className="whitespace-nowrap pb-3 pr-4">Estado</th>
                     <th className="pb-3">Acciones</th>
                   </tr>
                 </thead>
