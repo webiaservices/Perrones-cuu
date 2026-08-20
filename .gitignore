@@ -22,3 +22,4 @@ tsconfig.tsbuildinfo
 .open-next/
 .wrangler/
 worker-configuration.d.ts
+.vercel

@@ -52,6 +52,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  // Freno de mano. Mientras Meta tenga tumbada la cuenta de WhatsApp, cada
+  // corrida gasta mensajes que nunca llegan (error 63112) y ensucia la
+  // reputación del número. Se prende poniendo AVISOS_PAUSADOS=1 en Vercel y
+  // se apaga borrando la variable — sin tocar código ni el workflow.
+  if (process.env.AVISOS_PAUSADOS === "1") {
+    return NextResponse.json({
+      ok: true,
+      pausado: true,
+      motivo: "AVISOS_PAUSADOS=1 — el cron no manda nada hasta que se quite la variable",
+    })
+  }
+
   const admin = createAdminClient()
   const ahora = new Date()
 
@@ -98,7 +110,11 @@ export async function GET(req: NextRequest) {
       if (!tel) continue
       const res = await sendWhatsAppTemplate("paseo_sin_cubrir", tel, [fmtHora(p.scheduled_at)])
       if ("ok" in res && res.ok) resumen.paseo_sin_cubrir.enviados++
-      else resumen.paseo_sin_cubrir.errores.push(motivo(res))
+      else {
+        resumen.paseo_sin_cubrir.errores.push(motivo(res))
+        // No salió: se devuelve la marca para que el siguiente intento lo tome
+        await admin.from("reservations").update({ sin_cubrir_avisado_at: null }).eq("id", p.id)
+      }
     }
   }
 
@@ -148,7 +164,10 @@ export async function GET(req: NextRequest) {
         p.pickup_address ?? "Ver en tu panel",
       ])
       if ("ok" in res && res.ok) resumen.recordatorio_paseador.enviados++
-      else resumen.recordatorio_paseador.errores.push(motivo(res))
+      else {
+        resumen.recordatorio_paseador.errores.push(motivo(res))
+        await admin.from("reservations").update({ recordatorio_paseador_at: null }).eq("id", p.id)
+      }
     }
   }
 
@@ -171,6 +190,12 @@ export async function GET(req: NextRequest) {
     // avisar cuando en realidad el cron está ciego.
     if (qErr) resumen.pago_vencido.errores.push(`consulta: ${qErr.message}`)
 
+    // Un cliente con tres paseos sin pagar recibía tres cobros seguidos.
+    // Se junta todo lo suyo en un solo mensaje con el total y la fecha del
+    // paseo más viejo, y se marcan todas sus reservas de esa tanda.
+    type Deuda = { ids: string[]; total: number; masViejo: string; tel: string | null }
+    const porCliente = new Map<string, Deuda>()
+
     for (const p of paseos ?? []) {
       if (!p.scheduled_at) continue
       // El segundo aviso va a los 7 días del paseo, no a los 7 del primero.
@@ -179,24 +204,64 @@ export async function GET(req: NextRequest) {
         if (new Date(p.scheduled_at) > hace7) continue
       }
 
-      const { error: marcaErr } = await admin
-        .from("reservations")
-        .update({
-          pago_vencido_avisos: (p.pago_vencido_avisos ?? 0) + 1,
-          pago_vencido_ultimo_at: ahora.toISOString(),
-        })
-        .eq("id", p.id)
-        .eq("pago_vencido_avisos", p.pago_vencido_avisos ?? 0)
-      if (marcaErr) { resumen.pago_vencido.errores.push(marcaErr.message); continue }
-
       const tel = p.manual_client_phone ?? (await telefonoDe(admin, p.user_id))
       if (!tel) continue
+
+      const previo = porCliente.get(tel)
+      if (previo) {
+        previo.ids.push(p.id)
+        previo.total += p.price_mxn ?? 0
+        if (p.scheduled_at < previo.masViejo) previo.masViejo = p.scheduled_at
+      } else {
+        porCliente.set(tel, {
+          ids: [p.id],
+          total: p.price_mxn ?? 0,
+          masViejo: p.scheduled_at,
+          tel,
+        })
+      }
+    }
+
+    for (const [tel, deuda] of porCliente) {
+      // Se marca ANTES de enviar para no cobrarle ocho veces al mismo cliente
+      // si algo truena a media corrida; si el envío falla, se devuelve abajo.
+      const antes = new Map<string, { avisos: number; ultimo: string | null }>()
+      let falloMarca = false
+      for (const id of deuda.ids) {
+        const fila = (paseos ?? []).find((x) => x.id === id)
+        const original = fila?.pago_vencido_avisos ?? 0
+        const { error: marcaErr } = await admin
+          .from("reservations")
+          .update({
+            pago_vencido_avisos: original + 1,
+            pago_vencido_ultimo_at: ahora.toISOString(),
+          })
+          .eq("id", id)
+          .eq("pago_vencido_avisos", original)
+        if (marcaErr) {
+          resumen.pago_vencido.errores.push(marcaErr.message)
+          falloMarca = true
+          break
+        }
+        antes.set(id, { avisos: original, ultimo: fila?.pago_vencido_ultimo_at ?? null })
+      }
+      if (falloMarca) continue
+
       const res = await sendWhatsAppTemplate("pago_vencido", tel, [
-        `MX$${p.price_mxn}`,
-        fmtFecha(p.scheduled_at),
+        `MX$${deuda.total}`,
+        fmtFecha(deuda.masViejo),
       ])
       if ("ok" in res && res.ok) resumen.pago_vencido.enviados++
-      else resumen.pago_vencido.errores.push(motivo(res))
+      else {
+        resumen.pago_vencido.errores.push(motivo(res))
+        // Se deja como estaba: si ya traía un aviso previo, su fecha se respeta
+        for (const [id, previo] of antes) {
+          await admin
+            .from("reservations")
+            .update({ pago_vencido_avisos: previo.avisos, pago_vencido_ultimo_at: previo.ultimo })
+            .eq("id", id)
+        }
+      }
     }
   }
 
@@ -246,7 +311,10 @@ export async function GET(req: NextRequest) {
       if (!tel) continue
       const res = await sendWhatsAppTemplate("solicitud_resena", tel, [])
       if ("ok" in res && res.ok) resumen.solicitud_resena.enviados++
-      else resumen.solicitud_resena.errores.push(motivo(res))
+      else {
+        resumen.solicitud_resena.errores.push(motivo(res))
+        await admin.from("reservations").update({ resena_solicitada_at: null }).eq("id", p.id)
+      }
     }
   }
 
