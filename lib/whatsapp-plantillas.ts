@@ -28,6 +28,8 @@ export type Plantilla = {
   destinatario: "cliente" | "paseador"
   /** Qué la dispara, en una línea. */
   cuando: string
+  /** Etiqueta corta para el panel de Endy. */
+  resumen: string
   /** Qué representa cada {{n}}, en orden. */
   variables: string[]
   /** El texto tal cual va en Twilio. */
@@ -39,6 +41,7 @@ export const PLANTILLAS: Plantilla[] = [
     nombre: "paseo_confirmado",
     destinatario: "cliente",
     cuando: "El cliente completa una reserva en perronescuu.com.",
+    resumen: "Al cliente cuando agenda su paseo",
     variables: ["nombre del cliente", "lista de fechas y horas, una por renglón"],
     texto: `Hola {{1}} 🐾 ¡Gracias por reservar con Perrones!
 
@@ -59,6 +62,7 @@ Este es un número automático de Perrones. Para atención personalizada, escrí
     nombre: "paseador_asignado",
     destinatario: "cliente",
     cuando: "Un paseador acepta el paseo en la plataforma.",
+    resumen: "Al cliente cuando ya tiene paseador",
     variables: ["nombre del paseador", "fecha y hora del paseo"],
     texto: `Hola 🐾 Su paseo ya tiene paseador asignado.
 
@@ -77,6 +81,7 @@ Este es un número de mensajes automáticos de Perrones. Para atención personal
     nombre: "paseo_disponible",
     destinatario: "paseador",
     cuando: "Se abre una vacante o un paseo nuevo que hay que asignar.",
+    resumen: "A los paseadores cuando hay paseo nuevo",
     variables: ["nombre del paseador", "zona o colonia", "pago semanal de la ruta"],
     texto: `Hola, muy buenas tardes {{1}} 🐶
 
@@ -94,6 +99,7 @@ Este es un número de mensajes automáticos de Perrones. Para atención personal
     nombre: "recordatorio_pago",
     destinatario: "cliente",
     cuando: "Al INICIAR el último paseo de la semana del cliente (no al terminarlo, para que le dé tiempo de preparar la transferencia).",
+    resumen: "Al cliente en su último paseo de la semana",
     variables: ["monto a pagar"],
     texto: `Hola 🐾 Le informamos que hoy se realiza el último paseo de su semana.
 
@@ -111,6 +117,7 @@ Este es un número de mensajes automáticos de Perrones. Si requiere los datos b
     nombre: "paseador_acepta",
     destinatario: "paseador",
     cuando: "El paseador acepta un paseo. Los datos del dueño solo salen aquí, nunca a quien apenas mostró interés.",
+    resumen: "Al paseador con los datos del dueño",
     variables: [
       "nombre del paseador",
       "nombre del dueño o dueña",
@@ -141,6 +148,7 @@ Este es un número de mensajes automáticos de Perrones. Si necesitas atención 
     nombre: "paseo_sin_cubrir",
     destinatario: "cliente",
     cuando: "Faltan 2 horas para el paseo y sigue sin paseador asignado. La más importante: el hueco de no avisar ya dejó a dos clientas esperando.",
+    resumen: "Aviso interno: paseo sin paseador",
     variables: ["hora del paseo que no se pudo cubrir"],
     texto: `Hola 🐾 Le escribimos para avisarle que hoy no logramos asignar paseador para el paseo de las {{1}}. Una disculpa.
 
@@ -154,6 +162,7 @@ Este es un número de mensajes automáticos de Perrones. Para atención personal
     nombre: "recordatorio_paseador",
     destinatario: "paseador",
     cuando: "2 horas antes del primer paseo del día de ese paseador.",
+    resumen: "Al paseador 2 horas antes de su paseo",
     variables: ["nombre del paseador", "hora del paseo", "dirección"],
     texto: `Hola {{1}} 🐶 Recordatorio de tu paseo de hoy.
 
@@ -170,6 +179,7 @@ Y si por algo no vas a poder llegar, avísanos por lo menos 30 minutos antes �
     nombre: "pago_vencido",
     destinatario: "cliente",
     cuando: "3 días después de terminada la semana sin que el pago esté marcado en el panel. Puede repetirse a los 7 días.",
+    resumen: "Al cliente que quedó a deber",
     variables: ["monto pendiente", "semana correspondiente"],
     texto: `Hola 🐾 Le recordamos que tiene un pago pendiente de {{1}} correspondiente a la semana del {{2}}.
 
@@ -181,6 +191,7 @@ Este es un número de mensajes automáticos de Perrones. Cualquier duda, escríb
     nombre: "solicitud_resena",
     destinatario: "cliente",
     cuando: "1 día después del último paseo de la semana. Solo clientes nuevos, una sola vez por cliente.",
+    resumen: "Al cliente nuevo, para pedirle reseña",
     variables: [],
     texto: `Hola 🐾 Esperamos que su perrito haya disfrutado su paseo.
 

@@ -1707,7 +1707,7 @@ export function AdminPanel({
                   <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-foreground/80">
                     <li>Tu desarrollador crea la cuenta con el proveedor de mensajes.</li>
                     <li>Te llega un <b>código de verificación</b> al número del negocio — pásaselo.</li>
-                    <li>Se dan de alta las 4 plantillas de abajo (Meta las aprueba en unas horas).</li>
+                    <li>Se dan de alta las plantillas de abajo (Meta las aprueba en unas horas).</li>
                     <li>Vuelve aquí, dale <b>&ldquo;Revisar de nuevo&rdquo;</b> y manda un mensaje de prueba.</li>
                   </ol>
                 </div>
@@ -1724,7 +1724,8 @@ export function AdminPanel({
                 <div className="mt-4 space-y-2">
                   {waStatus.plantillas.map((p) => {
                     const ok = p.estado === "APPROVED"
-                    const pend = p.estado === "PENDING" || p.estado === "IN_APPEAL"
+                    const pend =
+                      p.estado === "PENDING" || p.estado === "IN_APPEAL" || p.estado === "RECEIVED"
                     return (
                       <div key={p.name} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-secondary/40 px-4 py-3">
                         <div>
@@ -1738,7 +1739,15 @@ export function AdminPanel({
                               : "bg-rose-100 text-rose-800"
                           }`}
                         >
-                          {ok ? "Aprobada" : pend ? "En revisión" : p.estado === "no existe" ? "Falta crearla" : p.estado}
+                          {ok
+                            ? "Aprobada"
+                            : pend
+                              ? "En revisión"
+                              : p.estado === "REJECTED"
+                                ? "Rechazada"
+                                : p.estado === "no existe"
+                                  ? "Falta crearla"
+                                  : p.estado}
                         </span>
                       </div>
                     )

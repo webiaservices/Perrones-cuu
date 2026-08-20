@@ -23,11 +23,14 @@
  * (form-encoded y plantillas por Content SID en vez de por nombre).
  */
 
+import { PLANTILLAS } from "./whatsapp-plantillas"
+
 const GRAPH_VERSION = "v21.0"
 const API_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`
 const D360_BASE = "https://waba-v2.360dialog.io"
 
 const TWILIO_BASE = "https://api.twilio.com/2010-04-01"
+const TWILIO_CONTENT_BASE = "https://content.twilio.com/v1"
 
 type Proveedor = "twilio" | "360dialog" | "meta"
 
@@ -210,13 +213,31 @@ export async function sendWhatsAppTemplate(
   }
 }
 
-/** Plantillas que la plataforma necesita tener aprobadas en Meta */
-export const PLANTILLAS_REQUERIDAS = [
-  { name: "paseo_confirmado", desc: "Al cliente cuando agenda su paseo" },
-  { name: "paseador_asignado", desc: "Al cliente cuando un paseador acepta" },
-  { name: "paseo_disponible", desc: "A los paseadores cuando hay paseo nuevo" },
-  { name: "recordatorio_pago", desc: "Al cliente cuando el paseo se completa" },
-]
+/**
+ * Estado real de aprobación de una plantilla en Meta, preguntándole a Twilio.
+ * Devuelve el estado en mayúsculas (APPROVED / PENDING / RECEIVED / REJECTED)
+ * o null si no se pudo consultar — nunca truena el panel por esto.
+ */
+async function twilioEstadoPlantilla(contentSid: string, auth: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${TWILIO_CONTENT_BASE}/Content/${contentSid}/ApprovalRequests`, {
+      headers: { Authorization: auth },
+      cache: "no-store",
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const estado = data?.whatsapp?.status
+    return typeof estado === "string" ? estado.toUpperCase() : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Plantillas que la plataforma necesita tener aprobadas en Meta.
+ * Sale de PLANTILLAS para que el panel no se quede corto cuando se agregue una.
+ */
+export const PLANTILLAS_REQUERIDAS = PLANTILLAS.map((p) => ({ name: p.nombre, desc: p.resumen }))
 
 export type WhatsAppStatus = {
   configurado: boolean
@@ -252,10 +273,15 @@ export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
 
   // --- Twilio: valida las credenciales contra la cuenta y revisa los Content SID ---
   if (con.proveedor === "twilio") {
-    const plantillasTwilio = PLANTILLAS_REQUERIDAS.map((p) => ({
-      ...p,
-      estado: twilioContentSid(p.name) ? "configurada" : "falta su Content SID",
-    }))
+    const plantillasTwilio = await Promise.all(
+      PLANTILLAS_REQUERIDAS.map(async (p) => {
+        const sid = twilioContentSid(p.name)
+        if (!sid) return { ...p, estado: "falta su Content SID" }
+        // Si Twilio no contesta, al menos se sabe que el SID ya está puesto
+        const estado = await twilioEstadoPlantilla(sid, con.headers.Authorization)
+        return { ...p, estado: estado ?? "configurada" }
+      }),
+    )
     try {
       const SID = process.env.TWILIO_ACCOUNT_SID!
       const res = await fetch(`${TWILIO_BASE}/Accounts/${SID}.json`, {
