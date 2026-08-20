@@ -1,0 +1,33 @@
+# Reloj de los avisos automáticos de WhatsApp.
+#
+# Vive aquí y no en vercel.json porque el plan Hobby de Vercel solo permite
+# crons de UNA VEZ AL DÍA (y con ±59 min de imprecisión). Los avisos de
+# "2 horas antes del paseo" necesitan resolución de minutos, así que el
+# reloj es GitHub Actions —gratis— y Vercel solo recibe el llamado.
+#
+# GitHub puede retrasar los crons en horas pico; por eso el endpoint usa una
+# ventana de tolerancia de 45 minutos en vez de un instante exacto.
+name: Avisos automáticos de WhatsApp
+
+on:
+  schedule:
+    - cron: "*/15 * * * *" # cada 15 minutos, UTC
+  workflow_dispatch: {} # permite dispararlo a mano desde la pestaña Actions
+
+jobs:
+  avisos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar al endpoint de avisos
+        run: |
+          codigo=$(curl -s -o /tmp/salida.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://perronescuu.com/api/cron/avisos")
+          echo "HTTP $codigo"
+          cat /tmp/salida.json
+          echo ""
+          # Falla el job si el endpoint no respondió 200, para que GitHub avise
+          if [ "$codigo" != "200" ]; then
+            echo "::error::El endpoint de avisos respondió $codigo"
+            exit 1
+          fi

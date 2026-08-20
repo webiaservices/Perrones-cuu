@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     const { data: reservation, error: resErr } = await admin
       .from("reservations")
-      .select("id, plan_name, dogs_count, price_mxn, status, scheduled_at, zone, pickup_address, dog_name, dog_size, user_id, walker_id")
+      .select("id, plan_name, dogs_count, price_mxn, status, scheduled_at, zone, pickup_address, dog_name, dog_size, user_id, walker_id, package_id")
       .eq("id", reservationId)
       .single()
 
@@ -60,13 +60,15 @@ export async function POST(req: NextRequest) {
 
     // Nombre del paseador si ya está asignado
     let walkerName: string | null = null
+    let walkerPhone: string | null = null
     if (reservation.walker_id) {
       const { data: w } = await admin
         .from("profiles")
-        .select("full_name")
+        .select("full_name, phone")
         .eq("id", reservation.walker_id)
         .single()
       walkerName = w?.full_name ?? null
+      walkerPhone = w?.phone ?? null
     }
 
     if (!RESEND_API_KEY) {
@@ -96,26 +98,41 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({ from: RESEND_FROM, to: [clienteEmail], subject, html }),
     })
 
-    // WhatsApp automático al cliente (si tiene teléfono y WA está configurado)
+    // ---------- WhatsApp ----------
+    // Los textos y el orden de variables están en lib/whatsapp-plantillas.ts.
     let waResult: unknown = { skipped: true, reason: "sin teléfono" }
     if (clienteTelefono) {
       if (isAssigned) {
+        // paseador_asignado: {{1}} paseador · {{2}} fecha y hora
         waResult = await sendWhatsAppTemplate("paseador_asignado", clienteTelefono, [
-          clienteNombre ?? "",
-          walkerName ?? "Tu paseador",
+          walkerName ?? "Su paseador",
           scheduledLabel,
         ])
       } else {
+        // paseo_confirmado: {{1}} nombre · {{2}} LISTA de fechas, una por renglón.
+        // Endy la pidió así porque un paquete son varios días y mandar solo la
+        // primera fecha hacía que el cliente creyera que era un paseo suelto.
         waResult = await sendWhatsAppTemplate("paseo_confirmado", clienteTelefono, [
           clienteNombre ?? "",
-          scheduledLabel,
-          reservation.zone ?? "",
-          String(reservation.price_mxn),
+          await listaDeFechas(admin, reservation),
         ])
       }
     }
 
-    return NextResponse.json({ ok: true, sent: res.ok, kind, whatsapp: waResult })
+    // paseador_acepta: al PASEADOR, con los datos del dueño y el manual.
+    // Solo al aceptar — nunca a quien apenas vio el paseo disponible.
+    let waPaseador: unknown = { skipped: true, reason: "no aplica" }
+    if (isAssigned && walkerPhone) {
+      waPaseador = await sendWhatsAppTemplate("paseador_acepta", walkerPhone, [
+        walkerName ?? "",
+        clienteNombre ?? "Cliente",
+        clienteTelefono ?? "Ver en el panel",
+        reservation.pickup_address ?? "Ver en el panel",
+        await listaDeFechas(admin, reservation),
+      ])
+    }
+
+    return NextResponse.json({ ok: true, sent: res.ok, kind, whatsapp: waResult, whatsappPaseador: waPaseador })
   } catch (e: unknown) {
     console.error("notify-cliente error:", e)
     const msg = e instanceof Error ? e.message : "Error"
@@ -226,4 +243,40 @@ function buildAsignadaHtml({
     body,
     site,
   )
+}
+
+/**
+ * Las fechas de un paquete, una por renglón: "Lunes 25 de agosto · 6:00 pm".
+ * Si es un paseo suelto devuelve solo esa fecha.
+ */
+async function listaDeFechas(
+  admin: ReturnType<typeof createAdminClient>,
+  reservation: { scheduled_at: string | null; package_id?: string | null },
+): Promise<string> {
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleString("es-MX", {
+      weekday: "long", day: "numeric", month: "long",
+      hour: "2-digit", minute: "2-digit", timeZone: "America/Chihuahua",
+    })
+
+  if (!reservation.package_id) {
+    return reservation.scheduled_at ? fmt(reservation.scheduled_at) : "Por confirmar"
+  }
+
+  const { data: dias } = await admin
+    .from("reservations")
+    .select("scheduled_at")
+    .eq("package_id", reservation.package_id)
+    .order("scheduled_at", { ascending: true })
+
+  const fechas = (dias ?? [])
+    .map((d) => d.scheduled_at)
+    .filter((f): f is string => Boolean(f))
+    .map(fmt)
+
+  return fechas.length > 0
+    ? fechas.join("\n")
+    : reservation.scheduled_at
+      ? fmt(reservation.scheduled_at)
+      : "Por confirmar"
 }

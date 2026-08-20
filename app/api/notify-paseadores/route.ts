@@ -147,10 +147,14 @@ export async function POST(req: NextRequest) {
       activos
         .filter((p) => p.phone)
         .map((p) =>
+          // paseo_disponible: {{1}} paseador · {{2}} zona · {{3}} PAGO SEMANAL.
+          // La 3ª cambió de fecha a pago a petición de Endy: mostrar el monto
+          // sin etiquetarlo como semanal hizo que un paseador lo dividiera
+          // entre los perros y creyera que se le pagaba una miseria.
           sendWhatsAppTemplate("paseo_disponible", p.phone!, [
             p.full_name ?? "",
             reservation.zone ?? "",
-            scheduledLabel,
+            `MX$${ganancia.toLocaleString("es-MX")}`,
           ]),
         ),
     )

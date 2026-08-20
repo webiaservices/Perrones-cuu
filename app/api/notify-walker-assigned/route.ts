@@ -86,10 +86,11 @@ export async function POST(req: NextRequest) {
     // WhatsApp al paseador
     let wa: unknown = { skipped: true }
     if (walkerProfile?.phone) {
+      // {{3}} es el pago semanal, no la fecha (ver nota en notify-paseadores)
       wa = await sendWhatsAppTemplate("paseo_disponible", walkerProfile.phone, [
         walkerProfile.full_name ?? "",
         r.zone ?? "",
-        when,
+        `MX$${ganancia.toLocaleString("es-MX")}`,
       ])
     }
 

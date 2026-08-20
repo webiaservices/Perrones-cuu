@@ -128,10 +128,10 @@ export async function POST(req: NextRequest) {
     // WhatsApp: recordatorio de pago
     let wa: unknown = { skipped: true }
     if (profile?.phone) {
+      // recordatorio_pago: {{1}} monto y nada más. El texto nuevo de Endy ya
+      // explica lo de las reposiciones, así que no lleva nombre ni perro.
       wa = await sendWhatsAppTemplate("recordatorio_pago", profile.phone, [
-        profile.full_name ?? "",
-        r.dog_name ?? "tu perrito",
-        String(r.price_mxn),
+        `MX$${Number(r.price_mxn).toLocaleString("es-MX")}`,
       ])
     }
 

@@ -568,6 +568,38 @@ export function AdminPanel({
     setReservations((prev) => prev.map((r) => (r.id === id ? { ...r, payment_status: newStatus } : r)))
   }
 
+  /**
+   * Marcado masivo de pagos. Endy lo pidió para bajar el tiempo de captura
+   * semanal, y además es requisito de la plantilla pago_vencido: si los pagos
+   * no se marcan a tiempo, el recordatorio le llega a quien ya pagó.
+   */
+  const [seleccionPago, setSeleccionPago] = useState<Set<string>>(new Set())
+  const [marcandoMasivo, setMarcandoMasivo] = useState(false)
+
+  const toggleSeleccion = (id: string) => {
+    setSeleccionPago((prev) => {
+      const s = new Set(prev)
+      if (s.has(id)) s.delete(id)
+      else s.add(id)
+      return s
+    })
+  }
+
+  const marcarPagosMasivo = async (paid: boolean) => {
+    const ids = Array.from(seleccionPago)
+    if (ids.length === 0) return
+    if (!confirm(`¿Marcar ${ids.length} paseo(s) como ${paid ? "PAGADOS" : "pendientes"}?`)) return
+    setMarcandoMasivo(true)
+    const supabase = createClient()
+    const newStatus = paid ? "pagado" : "pendiente"
+    // .in() en una sola llamada: 30 filas no son 30 viajes a la base
+    const { error } = await supabase.from("reservations").update({ payment_status: newStatus }).in("id", ids)
+    setMarcandoMasivo(false)
+    if (error) return alert(error.message)
+    setReservations((prev) => prev.map((r) => (ids.includes(r.id) ? { ...r, payment_status: newStatus } : r)))
+    setSeleccionPago(new Set())
+  }
+
   const updateUserRole = async (id: string, newRole: string) => {
     if (!confirm(`¿Cambiar rol a ${newRole}?`)) return
     setUpdatingUser(id)
@@ -1110,10 +1142,52 @@ export function AdminPanel({
               </select>
             </div>
 
+            {/* Barra de acción masiva: solo aparece con filas seleccionadas */}
+            {seleccionPago.size > 0 && (
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-4 py-3">
+                <span className="text-sm font-bold">
+                  {seleccionPago.size} paseo{seleccionPago.size === 1 ? "" : "s"} seleccionado{seleccionPago.size === 1 ? "" : "s"}
+                </span>
+                <button
+                  disabled={marcandoMasivo}
+                  onClick={() => marcarPagosMasivo(true)}
+                  className="rounded-full bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  ✓ Marcar como pagados
+                </button>
+                <button
+                  disabled={marcandoMasivo}
+                  onClick={() => marcarPagosMasivo(false)}
+                  className="rounded-full bg-amber-100 px-3.5 py-1.5 text-xs font-bold text-amber-800 transition-colors hover:bg-amber-200 disabled:opacity-50"
+                >
+                  ⏳ Marcar como pendientes
+                </button>
+                <button
+                  onClick={() => setSeleccionPago(new Set())}
+                  className="text-xs font-bold text-muted-foreground underline"
+                >
+                  Quitar selección
+                </button>
+                {marcandoMasivo && <span className="text-xs text-muted-foreground">Guardando…</span>}
+              </div>
+            )}
+
             <div className="mt-5 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                    <th className="pb-3 pr-3 w-8">
+                      {/* Selección para marcar pagos en lote */}
+                      <input
+                        type="checkbox"
+                        aria-label="Seleccionar todos los visibles"
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                        checked={filtered.length > 0 && filtered.every((r) => seleccionPago.has(r.id))}
+                        onChange={(e) =>
+                          setSeleccionPago(e.target.checked ? new Set(filtered.map((r) => r.id)) : new Set())
+                        }
+                      />
+                    </th>
                     <th className="pb-3 pr-4">Fecha</th>
                     <th className="pb-3 pr-4">Perro</th>
                     <th className="pb-3 pr-4">Cliente</th>
@@ -1131,7 +1205,7 @@ export function AdminPanel({
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="py-8 text-center text-muted-foreground">
+                      <td colSpan={13} className="py-8 text-center text-muted-foreground">
                         Sin reservas con esos filtros.
                       </td>
                     </tr>
@@ -1142,6 +1216,15 @@ export function AdminPanel({
                       const isPaid = r.payment_status === "pagado"
                       return (
                       <tr key={r.id} className={`border-b border-border/50 align-top ${canMakePublic ? "bg-amber-50" : ""}`}>
+                        <td className="py-3 pr-3 align-top">
+                          <input
+                            type="checkbox"
+                            aria-label="Seleccionar este paseo"
+                            className="mt-1 h-4 w-4 cursor-pointer accent-primary"
+                            checked={seleccionPago.has(r.id)}
+                            onChange={() => toggleSeleccion(r.id)}
+                          />
+                        </td>
                         <td className="py-3 pr-4 font-semibold">
                           {r.scheduled_at ? (
                             r.package_id && packageDates[r.package_id]?.length > 1 ? (
