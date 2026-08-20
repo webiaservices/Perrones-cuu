@@ -214,6 +214,36 @@ export async function sendWhatsAppTemplate(
 }
 
 /**
+ * Estado del sender de WhatsApp en Twilio. Autenticar contra la cuenta NO
+ * basta: las credenciales pueden estar perfectas y la cuenta de WhatsApp
+ * estar muerta del lado de Meta (error 63112). Devuelve null si no se pudo
+ * consultar.
+ */
+async function twilioEstadoSender(auth: string, numero: string | undefined) {
+  if (!numero) return null
+  try {
+    const res = await fetch(`https://messaging.twilio.com/v2/Channels/Senders`, {
+      headers: { Authorization: auth },
+      cache: "no-store",
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const limpio = numero.replace("whatsapp:", "").replace(/\D/g, "")
+    const mio = (data?.senders ?? []).find(
+      (x: { sender_id?: string }) => (x.sender_id ?? "").replace(/\D/g, "") === limpio,
+    )
+    if (!mio) return null
+    return {
+      estado: String(mio.status ?? "").toUpperCase(),
+      // Meta manda aquí el motivo cuando tumba o restringe la cuenta
+      detalle: mio.properties?.error_message ?? mio.status_callback_error ?? null,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
  * Estado real de aprobación de una plantilla en Meta, preguntándole a Twilio.
  * Devuelve el estado en mayúsculas (APPROVED / PENDING / RECEIVED / REJECTED)
  * o null si no se pudo consultar — nunca truena el panel por esto.
@@ -301,13 +331,39 @@ export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
           plantillas: plantillasTwilio,
         }
       }
-      const faltantes = plantillasTwilio.filter((p) => p.estado !== "configurada").length
+      // "configurada" es el valor de cuando Twilio no contestó, NO el de una
+      // plantilla lista. Lo único que cuenta como listo es APPROVED.
+      const listas = plantillasTwilio.filter((p) => p.estado === "APPROVED").length
+      const faltantes = plantillasTwilio.length - listas
+
+      // Las credenciales pueden estar bien y el número estar muerto en Meta.
+      // Sin esto, el panel decía "conectado y funcionando" mientras cada
+      // mensaje moría con 63112 y nadie se enteraba.
+      const sender = await twilioEstadoSender(con.headers.Authorization, con.from)
+      const senderCaido =
+        sender && !["ONLINE", "READY", "VERIFIED"].includes(sender.estado)
+
+      if (senderCaido) {
+        return {
+          configurado: true,
+          conectado: false,
+          proveedor: "twilio",
+          mensaje:
+            `El número está dado de alta en Twilio, pero WhatsApp (Meta) lo tiene ` +
+            `en estado "${sender.estado}". Mientras siga así, los mensajes no salen. ` +
+            (sender.detalle ? `Motivo: ${sender.detalle}` : "Hay que revisarlo en Meta."),
+          numero: con.from?.replace("whatsapp:", ""),
+          nombreNegocio: data?.friendly_name,
+          plantillas: plantillasTwilio,
+        }
+      }
+
       return {
         configurado: true,
         conectado: true,
         proveedor: "twilio",
         mensaje: faltantes
-          ? `Twilio conectado, pero faltan ${faltantes} plantilla(s) por configurar su Content SID.`
+          ? `Twilio conectado. ${listas} de ${plantillasTwilio.length} plantillas aprobadas por WhatsApp; faltan ${faltantes}.`
           : "WhatsApp está conectado por Twilio y funcionando.",
         numero: con.from?.replace("whatsapp:", ""),
         nombreNegocio: data?.friendly_name,
