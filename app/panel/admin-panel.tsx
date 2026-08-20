@@ -122,6 +122,8 @@ export type AdminUser = {
   phone: string | null
   email: string | null
   id_document_path: string | null
+  manual_accepted_at: string | null
+  manual_version: string | null
   role: string
   zone: string | null
   banned?: boolean
@@ -1438,6 +1440,7 @@ export function AdminPanel({
                     <th className="pb-3 pr-4">Rol</th>
                     <th className="pb-3 pr-4">Teléfono</th>
                     <th className="pb-3 pr-4">Zona</th>
+                    <th className="whitespace-nowrap pb-3 pr-4">Manual</th>
                     <th className="whitespace-nowrap pb-3 pr-4">Estado</th>
                     <th className="pb-3">Acciones</th>
                   </tr>
@@ -1445,7 +1448,7 @@ export function AdminPanel({
                 <tbody>
                   {users.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-muted-foreground">Sin usuarios.</td>
+                      <td colSpan={7} className="py-8 text-center text-muted-foreground">Sin usuarios.</td>
                     </tr>
                   ) : (
                     users.map((u) => (
@@ -1474,6 +1477,23 @@ export function AdminPanel({
                           {u.email && <div className="text-xs break-all">{u.email}</div>}
                         </td>
                         <td className="py-3 pr-4 text-muted-foreground">{u.zone ?? "—"}</td>
+                        <td className="py-3 pr-4">
+                          {/* Constancia de lectura del manual: solo aplica a paseadores */}
+                          {u.role !== "paseador" ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : u.manual_accepted_at ? (
+                            <span
+                              title={`Aceptado ${new Date(u.manual_accepted_at).toLocaleString("es-MX", { timeZone: "America/Chihuahua" })}${u.manual_version ? ` · ${u.manual_version}` : ""}`}
+                              className="whitespace-nowrap rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800"
+                            >
+                              ✓ {new Date(u.manual_accepted_at).toLocaleDateString("es-MX", { day: "numeric", month: "short", timeZone: "America/Chihuahua" })}
+                            </span>
+                          ) : (
+                            <span className="whitespace-nowrap rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">
+                              Sin aceptar
+                            </span>
+                          )}
+                        </td>
                         <td className="py-3 pr-4">
                           {u.banned ? (
                             <span className="rounded-full bg-destructive/15 px-2.5 py-0.5 text-xs font-bold text-destructive">Baneado</span>

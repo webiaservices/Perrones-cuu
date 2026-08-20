@@ -54,7 +54,7 @@ export default async function PanelPage() {
   if (role === "admin") {
     const { data: allUsers } = await supabase
       .from("profiles")
-      .select("id, full_name, phone, email, id_document_path, role, zone, banned, created_at")
+      .select("id, full_name, phone, email, id_document_path, role, zone, banned, created_at, manual_accepted_at, manual_version")
       .order("created_at", { ascending: false })
     const { data: reviews } = await supabase
       .from("reviews")
@@ -91,7 +91,7 @@ export default async function PanelPage() {
   if (role === "paseador") {
     const { data: walkerProfile } = await supabase
       .from("profiles")
-      .select("zone, available_hours")
+      .select("zone, available_hours, manual_accepted_at, manual_version")
       .eq("id", user.id)
       .single()
     return (
@@ -103,6 +103,8 @@ export default async function PanelPage() {
         ownerMap={ownerMap}
         initialZone={walkerProfile?.zone ?? null}
         initialAvailableHours={(walkerProfile?.available_hours ?? {}) as Record<string, boolean>}
+        manualAceptadoEn={(walkerProfile?.manual_accepted_at as string | null) ?? null}
+        manualVersionAceptada={(walkerProfile?.manual_version as string | null) ?? null}
       />
     )
   }

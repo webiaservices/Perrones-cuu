@@ -18,6 +18,8 @@ import {
   Bell,
   Calendar as CalendarIcon,
   List as ListIcon,
+  BookOpen,
+  Download,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react"
@@ -28,6 +30,8 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { createClient } from "@/lib/supabase/client"
 import { walkerPayoutFor, ZONES, WEEKDAYS } from "@/lib/constants"
+import { ManualPaseadores } from "@/components/manual-paseadores"
+import { MANUAL_VERSION } from "@/lib/manual-paseadores"
 
 export type WalkerReservation = {
   id: string
@@ -90,6 +94,8 @@ export function WalkerPanel({
   ownerMap,
   initialZone,
   initialAvailableHours,
+  manualAceptadoEn,
+  manualVersionAceptada,
 }: {
   fullName: string | null
   email: string
@@ -98,14 +104,39 @@ export function WalkerPanel({
   ownerMap: Record<string, { name: string | null; phone: string | null }>
   initialZone: string | null
   initialAvailableHours: Record<string, boolean>
+  manualAceptadoEn: string | null
+  manualVersionAceptada: string | null
 }) {
   const router = useRouter()
   const [reservations, setReservations] = useState(initial)
   const [tab, setTab] = useState<Tab>("disponibles")
-  const [view, setView] = useState<"lista" | "calendario">("lista")
+  const [view, setView] = useState<"lista" | "calendario" | "manual">("lista")
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const [selectedReservation, setSelectedReservation] = useState<WalkerReservation | null>(null)
   const [updating, setUpdating] = useState<string | null>(null)
+
+  // Manual: aceptado solo cuenta si es la versión vigente. Si el manual se
+  // actualiza, vuelve a pedirse la aceptación sin borrar la anterior.
+  const [aceptadoEn, setAceptadoEn] = useState<string | null>(
+    manualVersionAceptada === MANUAL_VERSION ? manualAceptadoEn : null,
+  )
+  const [aceptandoManual, setAceptandoManual] = useState(false)
+  const [errorManual, setErrorManual] = useState<string | null>(null)
+
+  const aceptarManual = async () => {
+    setAceptandoManual(true)
+    setErrorManual(null)
+    try {
+      const res = await fetch("/api/aceptar-manual", { method: "POST" })
+      const json = await res.json()
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo registrar")
+      setAceptadoEn(json.aceptadoEn)
+    } catch (e: unknown) {
+      setErrorManual(e instanceof Error ? e.message : "No se pudo registrar. Intenta de nuevo.")
+    } finally {
+      setAceptandoManual(false)
+    }
+  }
 
   // Editor de perfil
   const initialZoneIsCustom = !!initialZone && !ZONES.includes(initialZone)
@@ -446,6 +477,19 @@ export function WalkerPanel({
             <CalendarIcon className="h-4 w-4" />
             Calendario
           </button>
+          <button
+            onClick={() => setView("manual")}
+            className={`relative flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-all ${
+              view === "manual" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <BookOpen className="h-4 w-4" />
+            Manual
+            {/* Punto rojo mientras no lo haya aceptado: es lo que hace que lo abra */}
+            {!aceptadoEn && (
+              <span aria-label="Pendiente de aceptar" className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
+            )}
+          </button>
         </div>
 
         {/* Tabs (solo en vista lista) */}
@@ -471,6 +515,81 @@ export function WalkerPanel({
           }).length} />
           <TabPill active={tab === "disponibles"} onClick={() => setTab("disponibles")} label="Disponibles" count={availableReservations.length} highlight={availableReservations.length > 0} />
         </div>
+        )}
+
+        {/* Vista manual */}
+        {view === "manual" && (
+          <div className="space-y-6">
+            {/* Estado de aceptación arriba: es lo primero que Endy quiere ver */}
+            {aceptadoEn ? (
+              <div className="rounded-3xl border border-emerald-300 bg-emerald-50/70 p-5 shadow-sm">
+                <p className="flex items-center gap-2 font-display text-lg font-extrabold text-emerald-900">
+                  <CheckCircle2 className="h-5 w-5" />
+                  Manual aceptado
+                </p>
+                <p className="mt-1 text-sm text-emerald-900/80">
+                  Lo aceptaste el{" "}
+                  <b>
+                    {new Date(aceptadoEn).toLocaleString("es-MX", {
+                      weekday: "long", day: "numeric", month: "long", year: "numeric",
+                      hour: "2-digit", minute: "2-digit", timeZone: "America/Chihuahua",
+                    })}
+                  </b>
+                  . Puedes releerlo cuando quieras.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-amber-300 bg-amber-50/70 p-5 shadow-sm">
+                <p className="font-display text-lg font-extrabold text-amber-900">
+                  Léelo antes de tu primer paseo
+                </p>
+                <p className="mt-1 text-sm text-amber-900/80">
+                  Cuando termines de leerlo, marca la casilla de abajo. Queda registrada la fecha y la hora.
+                </p>
+              </div>
+            )}
+
+            <div className="rounded-3xl border border-border bg-background p-6 shadow-sm sm:p-8">
+              <ManualPaseadores />
+            </div>
+
+            {/* Aceptación + descarga */}
+            <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
+              {!aceptadoEn && (
+                <>
+                  <label className="flex cursor-pointer items-start gap-3">
+                    <Checkbox
+                      checked={false}
+                      disabled={aceptandoManual}
+                      onCheckedChange={(v) => { if (v) aceptarManual() }}
+                      className="mt-0.5"
+                    />
+                    <span className="text-sm font-semibold leading-relaxed">
+                      He leído y acepto el manual de paseadores de Perrones Cuu, y me comprometo a
+                      seguir los estándares que describe.
+                    </span>
+                  </label>
+                  {aceptandoManual && (
+                    <p className="mt-3 text-sm text-muted-foreground">Registrando…</p>
+                  )}
+                  {errorManual && (
+                    <p className="mt-3 text-sm font-semibold text-destructive">{errorManual}</p>
+                  )}
+                </>
+              )}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button onClick={() => window.print()} variant="outline" className="rounded-full font-bold">
+                  <Download className="mr-2 h-4 w-4" />
+                  Descargar PDF
+                </Button>
+                <Button asChild variant="outline" className="rounded-full font-bold">
+                  <a href="/manual" target="_blank" rel="noopener noreferrer">
+                    Abrir en pestaña nueva
+                  </a>
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Vista calendario */}
