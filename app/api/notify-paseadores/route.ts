@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     //    NADIE. La zona va bien visible en el correo para que decidan.
     const { data: profiles } = await admin
       .from("profiles")
-      .select("id, full_name, phone, zone, banned")
+      .select("id, full_name, phone, zone, banned, wa_rebotes")
       .eq("role", "paseador")
 
     const activos = (profiles ?? []).filter((p) => !p.banned)
@@ -143,9 +143,17 @@ export async function POST(req: NextRequest) {
     const sent = results.filter((r) => r.status === "fulfilled").length
 
     // WhatsApp automático a paseadores con teléfono (solo activos)
+    //
+    // OJO CON EL VOLUMEN: esto es lo que tumbó la cuenta el 19 de agosto.
+    // Salieron 42 mensajes casi en el mismo segundo y 35 rebotaron, porque se
+    // le insistía a números sin WhatsApp. Meta no distingue eso de un spammer.
+    // Ahora se saltan los números que ya rebotaron dos veces; el admin los ve
+    // marcados en su panel y los corrige con el paseador.
+    const conWhatsApp = activos.filter((p) => p.phone && (p.wa_rebotes ?? 0) < 2)
+    const saltados = activos.filter((p) => p.phone).length - conWhatsApp.length
+
     const waResults = await Promise.allSettled(
-      activos
-        .filter((p) => p.phone)
+      conWhatsApp
         .map((p) =>
           // paseo_disponible: {{1}} paseador · {{2}} zona · {{3}} PAGO SEMANAL.
           // La 3ª cambió de fecha a pago a petición de Endy: mostrar el monto
@@ -160,7 +168,14 @@ export async function POST(req: NextRequest) {
     )
     const waSent = waResults.filter((r) => r.status === "fulfilled").length
 
-    return NextResponse.json({ notified: sent, total: emails.length, zone: reservation.zone, whatsapp: waSent })
+    return NextResponse.json({
+      notified: sent,
+      total: emails.length,
+      zone: reservation.zone,
+      whatsapp: waSent,
+      // Si esto crece, hay números que corregir: se ven en el panel
+      whatsappSaltados: saltados,
+    })
   } catch (e: unknown) {
     console.error("notify-paseadores error:", e)
     const msg = e instanceof Error ? e.message : "Error desconocido"

@@ -52,9 +52,36 @@ export async function POST(req: NextRequest) {
     const sid = params.MessageSid ?? params.SmsMessageSid ?? null
     const nombre = params.ProfileName ?? null
 
-    if (!from) return new NextResponse("", { status: 200 })
-
     const admin = createAdminClient()
+
+    // ---- Aviso de entrega, no un mensaje del cliente ----
+    // Twilio manda aquí el resultado de cada envío. Un rebote (failed /
+    // undelivered) hay que apuntarlo: el 19 de agosto salieron 42 mensajes,
+    // 35 rebotaron, y al día siguiente Meta tumbó la cuenta. Si el sistema
+    // sigue insistiendo con números muertos, vuelve a pasar.
+    const estado = String(params.MessageStatus ?? params.SmsStatus ?? "").toLowerCase()
+    if (estado) {
+      const destino = String(params.To ?? "").replace("whatsapp:", "").replace(/\D/g, "")
+      if (destino) {
+        if (estado === "failed" || estado === "undelivered") {
+          const motivo = params.ErrorCode ? `${params.ErrorCode} ${params.ErrorMessage ?? ""}`.trim() : estado
+          await admin.rpc("registrar_rebote_wa", { tel: destino, motivo }).then(
+            () => {},
+            // Si la migración 0023 aún no corre, no se tira el webhook por esto
+            (e: unknown) => console.warn("[whatsapp-webhook] no se pudo registrar rebote:", e),
+          )
+        } else if (estado === "delivered" || estado === "read") {
+          // Llegó: el número está sano otra vez, se le limpia el historial
+          await admin.rpc("limpiar_rebotes_wa", { tel: destino }).then(
+            () => {},
+            () => {},
+          )
+        }
+      }
+      return new NextResponse("", { status: 200 })
+    }
+
+    if (!from) return new NextResponse("", { status: 200 })
     // onConflict por message_sid: si Twilio reintenta, no se duplica
     await admin
       .from("whatsapp_messages")
