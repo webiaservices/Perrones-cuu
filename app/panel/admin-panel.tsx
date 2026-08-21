@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input"
 import { LogoCircle } from "@/components/logo-circle"
 import { createClient } from "@/lib/supabase/client"
 import { STATUS_LABELS, ADMIN_SHARE, adminFeeFor, walkerPayoutFor } from "@/lib/constants"
+import { mensajesParaReserva, linkWhatsApp } from "@/lib/whatsapp-manual"
 
 export type AdminReservation = {
   id: string
@@ -276,6 +277,8 @@ export function AdminPanel({
   }
   const [updatingUser, setUpdatingUser] = useState<string | null>(null)
   const [assignFor, setAssignFor] = useState<AdminReservation | null>(null)
+  /** Reserva para la que se está armando un WhatsApp a mano (sin la API de Meta) */
+  const [waManualFor, setWaManualFor] = useState<AdminReservation | null>(null)
   // Buscador dentro del modal de asignar paseador (son muchos para scrollear)
   const [walkerSearch, setWalkerSearch] = useState("")
   const [assigning, setAssigning] = useState(false)
@@ -1265,6 +1268,16 @@ export function AdminPanel({
                           {(r.manual_client_phone ?? ownerMap[r.user_id]?.phone) && (
                             <div className="text-xs text-muted-foreground">
                               {r.manual_client_phone ?? ownerMap[r.user_id]?.phone}
+                              {/* Mensaje ya escrito, sale del WhatsApp de siempre.
+                                  No usa la API de Meta, así que funciona aunque
+                                  la cuenta de WhatsApp Business esté trabada. */}
+                              <button
+                                onClick={() => setWaManualFor(r)}
+                                title="Mandarle WhatsApp con el mensaje ya escrito"
+                                className="ml-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-200"
+                              >
+                                WhatsApp
+                              </button>
                             </div>
                           )}
                           {/* Los clientes manuales no tienen cuenta, así que no traen correo */}
@@ -2035,6 +2048,74 @@ export function AdminPanel({
           </div>
         </div>
       )}
+
+      {/* Modal: mandar WhatsApp a mano, sin la API de Meta.
+          Abre el WhatsApp de Endy con el mensaje ya escrito: él solo le da enviar.
+          Sale de su número de siempre, que es el que los clientes reconocen. */}
+      {waManualFor && (() => {
+        const tel = waManualFor.manual_client_phone ?? ownerMap[waManualFor.user_id]?.phone ?? ""
+        const nombre = waManualFor.manual_client_name ?? ownerMap[waManualFor.user_id]?.name ?? "cliente"
+        const fmt = (iso: string) =>
+          new Date(iso).toLocaleString("es-MX", {
+            weekday: "long", day: "numeric", month: "long",
+            hour: "2-digit", minute: "2-digit", timeZone: "America/Chihuahua",
+          })
+        // Si es paquete, van todas las fechas del paquete; si no, la suya sola
+        const delPaquete = waManualFor.package_id
+          ? reservations
+              .filter((x) => x.package_id === waManualFor.package_id && x.scheduled_at)
+              .sort((a, b) => (a.scheduled_at ?? "").localeCompare(b.scheduled_at ?? ""))
+          : [waManualFor]
+        const fechas = delPaquete.map((x) => (x.scheduled_at ? fmt(x.scheduled_at) : "")).filter(Boolean)
+        const mensajes = mensajesParaReserva({
+          clienteNombre: nombre,
+          fechas,
+          paseadorNombre: waManualFor.walker_id ? walkerMap[waManualFor.walker_id]?.name : null,
+          fechaHora: waManualFor.scheduled_at ? fmt(waManualFor.scheduled_at) : "",
+          monto: effectivePrice(waManualFor),
+        })
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setWaManualFor(null)}>
+            <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-background p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <h3 className="font-display text-xl font-extrabold">Mandar WhatsApp a {nombre}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Se abre tu WhatsApp con el mensaje ya escrito. Tú nada más le das enviar.
+                Sale de <b>tu número de siempre</b>, el que tus clientes ya conocen.
+              </p>
+              {!tel && (
+                <p className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                  Este cliente no tiene teléfono registrado.
+                </p>
+              )}
+              {tel && (
+                <div className="mt-4 space-y-3">
+                  {mensajes.map((m) => (
+                    <div key={m.clave} className="rounded-2xl border border-border p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-bold">{m.etiqueta}</p>
+                        <a
+                          href={linkWhatsApp(tel, m.texto)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-emerald-700"
+                        >
+                          Abrir WhatsApp →
+                        </a>
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                        {m.texto}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Button variant="outline" onClick={() => setWaManualFor(null)} className="mt-5 w-full rounded-full font-bold">
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Modal asignar paseador */}
       {assignFor && (
