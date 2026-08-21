@@ -59,8 +59,12 @@ export async function POST(req: NextRequest) {
     // undelivered) hay que apuntarlo: el 19 de agosto salieron 42 mensajes,
     // 35 rebotaron, y al día siguiente Meta tumbó la cuenta. Si el sistema
     // sigue insistiendo con números muertos, vuelve a pasar.
+    // OJO: un mensaje ENTRANTE también trae estado, pero vale "received".
+    // Si no se distingue, los mensajes de los clientes se tomarían por avisos
+    // de entrega y nunca llegarían a la bandeja del panel.
+    const ESTADOS_DE_ENVIO = ["queued", "sending", "sent", "delivered", "read", "failed", "undelivered"]
     const estado = String(params.MessageStatus ?? params.SmsStatus ?? "").toLowerCase()
-    if (estado) {
+    if (estado && ESTADOS_DE_ENVIO.includes(estado)) {
       const destino = String(params.To ?? "").replace("whatsapp:", "").replace(/\D/g, "")
       if (destino) {
         if (estado === "failed" || estado === "undelivered") {

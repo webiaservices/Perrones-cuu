@@ -50,6 +50,22 @@ type Conexion = {
  *   TWILIO_TPL_PASEO_CONFIRMADO, TWILIO_TPL_PASEADOR_ASIGNADO,
  *   TWILIO_TPL_PASEO_DISPONIBLE, TWILIO_TPL_RECORDATORIO_PAGO
  */
+/**
+ * A dónde debe avisarnos Twilio si un mensaje se entregó o rebotó.
+ *
+ * Sin esto NUNCA nos enteramos de los rebotes, y el sistema le sigue
+ * insistiendo a números muertos hasta que Meta tumba la cuenta —
+ * exactamente lo que pasó el 19 de agosto.
+ */
+function urlAvisoDeEntrega(): string | undefined {
+  const base =
+    process.env.TWILIO_WEBHOOK_URL ??
+    (process.env.NEXT_PUBLIC_SITE_URL
+      ? `${process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}/api/whatsapp-webhook`
+      : undefined)
+  return base
+}
+
 function twilioContentSid(template: string): string | undefined {
   return process.env[`TWILIO_TPL_${template.toUpperCase()}`]
 }
@@ -162,6 +178,8 @@ export async function sendWhatsAppTemplate(
         ContentSid: contentSid,
         ContentVariables: JSON.stringify(twVars),
       })
+      const aviso = urlAvisoDeEntrega()
+      if (aviso) body.set("StatusCallback", aviso)
       const res = await fetch(con.urlMensajes, { method: "POST", headers: con.headers, body })
       const data = await res.json()
       if (!res.ok) {
@@ -511,6 +529,8 @@ export async function sendWhatsAppText(to: string, text: string): Promise<WhatsA
         From: con.from!,
         Body: text,
       })
+      const aviso = urlAvisoDeEntrega()
+      if (aviso) body.set("StatusCallback", aviso)
       const res = await fetch(con.urlMensajes, { method: "POST", headers: con.headers, body })
       const data = await res.json()
       if (!res.ok) {
