@@ -141,12 +141,29 @@ type WhatsAppResponse =
  * @param vars      Variables del template en orden ({{1}}, {{2}}, ...)
  * @param lang      Idioma del template (default "es_MX")
  */
+/**
+ * Interruptor general de WhatsApp saliente.
+ *
+ * Cuando Meta tiene tumbada la cuenta, CADA intento falla con 63112 y le pega
+ * más a la reputación del número — el 23 de agosto salieron 48 mensajes y
+ * fallaron los 48. Pausar el cron no bastaba: los avisos que dispara una
+ * reserva o una asignación entran por otro lado.
+ *
+ * Se prende con AVISOS_PAUSADOS=1 en Vercel y se apaga borrando la variable.
+ */
+function enviosPausados(): boolean {
+  return process.env.AVISOS_PAUSADOS === "1"
+}
+
 export async function sendWhatsAppTemplate(
   template: string,
   to: string,
   vars: string[],
   lang = "es_MX",
 ): Promise<WhatsAppResponse> {
+  if (enviosPausados()) {
+    return { ok: false, skipped: true, reason: "Envíos de WhatsApp pausados (AVISOS_PAUSADOS=1)" }
+  }
   const con = getConexion()
   if (!con) {
     return { ok: false, skipped: true, reason: "WhatsApp no configurado (faltan credenciales)" }
@@ -517,6 +534,9 @@ export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
 }
 
 export async function sendWhatsAppText(to: string, text: string): Promise<WhatsAppResponse> {
+  if (enviosPausados()) {
+    return { ok: false, skipped: true, reason: "Envíos de WhatsApp pausados (AVISOS_PAUSADOS=1)" }
+  }
   const con = getConexion()
   if (!con) return { ok: false, skipped: true, reason: "WhatsApp no configurado" }
   const cleaned = ensureCountryCode(to)
