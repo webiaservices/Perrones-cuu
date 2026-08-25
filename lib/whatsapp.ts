@@ -160,8 +160,14 @@ export async function sendWhatsAppTemplate(
   to: string,
   vars: string[],
   lang = "es_MX",
+  /**
+   * Prueba manual del admin: pasa por encima de la pausa. La pausa existe para
+   * que el sistema no dispare solo cuando el número está caído, no para
+   * impedirle a Endy comprobar si ya revivió.
+   */
+  forzar = false,
 ): Promise<WhatsAppResponse> {
-  if (enviosPausados()) {
+  if (enviosPausados() && !forzar) {
     return { ok: false, skipped: true, reason: "Envíos de WhatsApp pausados (AVISOS_PAUSADOS=1)" }
   }
   const con = getConexion()

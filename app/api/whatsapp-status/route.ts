@@ -25,12 +25,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Pon un número de 10 dígitos" }, { status: 400 })
     }
 
-    // Usamos la plantilla de paseo disponible como prueba (es la más simple)
-    const res = await sendWhatsAppTemplate("paseo_disponible", String(telefono), [
-      "Prueba",
-      "Centro",
-      "hoy, mensaje de prueba",
-    ])
+    // paseo_disponible: {{1}} paseador · {{2}} zona · {{3}} PAGO SEMANAL.
+    // La tercera es el pago, así que va con formato de dinero — antes decía
+    // "hoy, mensaje de prueba" y el mensaje salía con "Pago semanal: hoy".
+    // El último true fuerza el envío aunque los automáticos estén pausados.
+    const res = await sendWhatsAppTemplate(
+      "paseo_disponible",
+      String(telefono),
+      ["Prueba", "Centro", "MX$0 (mensaje de prueba)"],
+      "es_MX",
+      true,
+    )
 
     if ("ok" in res && res.ok) {
       return NextResponse.json({ ok: true, mensaje: "Mensaje de prueba enviado. Revisa el WhatsApp de ese número." })
