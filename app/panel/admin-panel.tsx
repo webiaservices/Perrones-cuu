@@ -293,13 +293,18 @@ export function AdminPanel({
     r.admin_fee_mxn ?? Math.round(effectivePrice(r) * ADMIN_SHARE)
   const adminShareFor = (r: AdminReservation) => adminFeeFor(effectivePrice(r), r.admin_fee_mxn)
   const walkerShareFor = (r: AdminReservation) => walkerPayoutFor(effectivePrice(r), r.admin_fee_mxn)
+  const [feeMsg, setFeeMsg] = useState<string | null>(null)
   const saveAdminFee = async (v: number | null) => {
     setAdminFee(v)
     setSavingFee(true)
+    setFeeMsg(null)
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
-      await supabase.from("profiles").update({ commission_pct: v }).eq("id", user.id)
+      // Antes no se miraba el error: si el guardado fallaba, la pantalla decía
+      // que sí y el número volvía al viejo en la siguiente carga.
+      const { error } = await supabase.from("profiles").update({ commission_pct: v }).eq("id", user.id)
+      setFeeMsg(error ? `No se guardó: ${error.message}` : "Guardado.")
     }
     setSavingFee(false)
   }
@@ -1285,11 +1290,13 @@ export function AdminPanel({
           <div>
             <p className="text-sm font-bold">Reparto de ganancias</p>
             <p className="text-xs text-muted-foreground">
-              Define cuánto ganas tú por cada paseo (en pesos). Lo demás va al paseador.
+              Define cuánto ganas tú de cada cobro, en pesos. Lo demás va al paseador.
+              <b> En los paquetes se aplica al total, no por día</b>: si pones $100 y el paquete es de 5 días,
+              te llevas $100 del paquete completo.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-xs font-bold">Mi ganancia por paseo: $</label>
+            <label className="text-xs font-bold">Mi ganancia por cobro: $</label>
             <Input
               type="number"
               min={0}
@@ -1298,7 +1305,7 @@ export function AdminPanel({
               onChange={(e) => setAdminFee(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))}
               className="w-24"
             />
-            <span className="text-xs font-bold text-muted-foreground">MXN · vacío = 30% del precio</span>
+            <span className="text-xs font-bold text-muted-foreground">MXN · vacío = 30% del total</span>
             <button
               onClick={() => saveAdminFee(adminFee)}
               disabled={savingFee}
@@ -1306,6 +1313,11 @@ export function AdminPanel({
             >
               {savingFee ? "Guardando…" : "Guardar"}
             </button>
+            {feeMsg && (
+              <span className={`text-xs font-bold ${feeMsg.startsWith("No se") ? "text-destructive" : "text-primary"}`}>
+                {feeMsg}
+              </span>
+            )}
           </div>
         </div>
 

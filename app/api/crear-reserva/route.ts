@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { PLANS, priceForDogs } from "@/lib/constants"
-import { precioDe } from "@/lib/precios"
+import { precioDe, pagoPaseadorDe } from "@/lib/precios"
 import { ciudadSegura, zonasDe } from "@/lib/ciudades"
 
 /**
@@ -158,6 +158,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Lo que le toca al paseador sale de lo que Endy capturó por paquete, no
+    // del 70% automático. La comisión es el resto: así el paseador cobra
+    // exactamente la cantidad acordada, sin importar el precio del cliente.
+    const pagoPaseador = await pagoPaseadorDe(ciudad, plan.name, dogs.length, price)
+    const comisionAdmin = Math.max(0, price - pagoPaseador)
+
     const packageId = walksCount > 1 ? crypto.randomUUID() : null
     const rows = ordered.map((slot, i) => {
       const at = new Date(`${slot.date}T${slot.startHour}:00-06:00`)
@@ -167,6 +173,9 @@ export async function POST(req: NextRequest) {
         plan_name: plan.name,
         dogs_count: dogs.length,
         price_mxn: i === 0 ? price : 0,
+        // La comisión va solo en el primero, igual que el precio: si fuera en
+        // todos, un paquete de 5 días se vería como 5 comisiones.
+        admin_fee_mxn: i === 0 ? comisionAdmin : null,
         status: "buscando_paseador",
         notes: i === 0 ? notes : `${notes}${notes ? " · " : ""}Paseo ${i + 1} de ${walksCount} del paquete "${plan.name}"`,
         scheduled_at: at.toISOString(),
@@ -185,7 +194,6 @@ export async function POST(req: NextRequest) {
         visibility: "pending_admin",
         payment_status: "pendiente",
         responsibility_accepted: true,
-        admin_fee_mxn: null, // null = comisión 30% automática
         package_id: packageId,
         package_index: walksCount > 1 ? i + 1 : null,
         package_total: walksCount > 1 ? walksCount : null,
