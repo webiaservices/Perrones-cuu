@@ -50,6 +50,7 @@ export type WalkerReservation = {
   dog_size: string | null
   dog_breed: string | null
   dog_id: string | null
+  house_photo_path: string | null
   walker_id: string | null
   package_id?: string | null
   package_index?: number | null
@@ -1069,6 +1070,21 @@ function ReservationDetailModal({
           {reservation.zone && <p><b>Zona:</b> {reservation.zone}</p>}
           {isMine && reservation.pickup_address && (
             <p className="rounded-xl bg-accent/30 px-3 py-2"><b>Recoger en:</b> {reservation.pickup_address}</p>
+          )}
+          {/* La foto de la casa solo se ofrece cuando el paseo YA es suyo: el
+              endpoint también lo valida, esto es para no enseñar el botón. */}
+          {isMine && reservation.house_photo_path && (
+            <button
+              onClick={async () => {
+                const res = await fetch(`/api/ver-fachada?reservationId=${reservation.id}`)
+                const json = await res.json()
+                if (json.url) window.open(json.url, "_blank", "noopener,noreferrer")
+                else alert(json.error ?? "No se pudo abrir la foto")
+              }}
+              className="w-full rounded-xl bg-secondary px-3 py-2 text-left font-semibold hover:bg-secondary/70"
+            >
+              📷 Ver foto de la casa
+            </button>
           )}
           {isMine && ownerName && <p><b>Dueño:</b> {ownerName}</p>}
           {reservation.notes && <p className="italic text-muted-foreground">{reservation.notes}</p>}

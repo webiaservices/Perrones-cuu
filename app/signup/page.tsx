@@ -73,11 +73,29 @@ function SignUpForm() {
   }, [params])
 
   const needsContract = role === "dueno" || role === "paseador"
-  const contractText = role === "paseador" ? WALKER_CONTRACT : CLIENT_CONTRACT
+  /** Contrato vigente. Endy puede publicar versiones nuevas desde su panel, y
+   *  lo que se firma aquí tiene que ser lo que él publicó, no lo del código. */
+  const [docVigente, setDocVigente] = useState<{ version: string; texto: string } | null>(null)
+  const contractText = docVigente?.texto ?? (role === "paseador" ? WALKER_CONTRACT : CLIENT_CONTRACT)
+  const contractVersion = docVigente?.version ?? CONTRACT_VERSION
   const contractType = role === "paseador" ? "paseador" : "cliente"
 
   const toggleDay = (d: string) =>
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
+
+  useEffect(() => {
+    const supabase = createClient()
+    const tipo = role === "paseador" ? "paseador" : "cliente"
+    supabase
+      .from("documentos")
+      .select("version, texto")
+      .eq("tipo", tipo)
+      .eq("vigente", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setDocVigente(data ? { version: data.version, texto: data.texto } : null))
+  }, [role])
 
   useEffect(() => {
     const supabase = createClient()
@@ -190,7 +208,7 @@ function SignUpForm() {
         await supabase.from("contracts").insert({
           user_id: data.session.user.id,
           type: contractType,
-          version: CONTRACT_VERSION,
+          version: contractVersion,
         })
       }
 

@@ -14,6 +14,7 @@ import {
   CalendarDays,
   Clock,
   DollarSign,
+  FileText,
   X,
   CheckCircle2,
   Users,
@@ -31,6 +32,7 @@ import { LogoCircle } from "@/components/logo-circle"
 import { createClient } from "@/lib/supabase/client"
 import { STATUS_LABELS, ADMIN_SHARE, adminFeeFor, walkerPayoutFor, PLANS } from "@/lib/constants"
 import { CIUDADES, type CiudadId } from "@/lib/ciudades"
+import { CLIENT_CONTRACT, WALKER_CONTRACT, CONTRACT_VERSION } from "@/lib/contract-text"
 import { mensajesParaReserva, linkWhatsApp } from "@/lib/whatsapp-manual"
 
 export type AdminReservation = {
@@ -50,6 +52,7 @@ export type AdminReservation = {
   dog_name: string | null
   dog_size: string | null
   dog_breed?: string | null
+  orden?: number | null
   recurrencia?: string | null
   visibility?: string | null
   payment_status?: string | null
@@ -187,7 +190,7 @@ export function AdminPanel({
       return next
     })
   }
-  const [view, setView] = useState<"tabla" | "calendario" | "usuarios" | "resenas" | "whatsapp" | "precios">("tabla")
+  const [view, setView] = useState<"tabla" | "calendario" | "usuarios" | "resenas" | "whatsapp" | "precios" | "contrato">("tabla")
   /** Editor de precios y de pago al paseador, por ciudad */
   const [ciudadPrecios, setCiudadPrecios] = useState<CiudadId>("chihuahua")
   const [tablaPrecios, setTablaPrecios] = useState<Record<string, Record<number, number>>>({})
@@ -197,6 +200,13 @@ export function AdminPanel({
   /** Interruptores del negocio y lista de espera de las ciudades cerradas */
   const [ajustes, setAjustes] = useState<Record<string, boolean>>({})
   const [espera, setEspera] = useState<{ email: string; city: string; nombre: string | null; created_at: string }[]>([])
+  /** Editor del contrato: texto + número de versión */
+  const [docTipo, setDocTipo] = useState<"cliente" | "paseador">("cliente")
+  const [docTexto, setDocTexto] = useState("")
+  const [docVersion, setDocVersion] = useState("")
+  const [docHistorial, setDocHistorial] = useState<{ version: string; vigente: boolean; created_at: string }[]>([])
+  const [docMsg, setDocMsg] = useState<string | null>(null)
+  const [aceptaciones, setAceptaciones] = useState<Record<string, string>>({})
   // Estado de la conexión de WhatsApp (se carga al abrir la pestaña)
   type WaStatus = {
     configurado: boolean
@@ -340,6 +350,12 @@ export function AdminPanel({
   const updateNewSlot = (i: number, patch: Partial<{ date: string; startHour: string }>) => {
     setNewSlots((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)))
   }
+  /** Días a mano: hay clientes con trato de 4 o de 2 días que no caben en
+   *  ningún paquete fijo. El precio se captura aparte, como siempre. */
+  const agregarDia = () =>
+    setNewSlots((prev) => [...prev, { date: prev[prev.length - 1]?.date ?? "", startHour: "09:00" }])
+  const quitarDia = (i: number) =>
+    setNewSlots((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)))
 
   const allOwners = useMemo(() => users.filter((u) => u.role === "dueno" && !u.banned), [users])
 
@@ -673,6 +689,73 @@ export function AdminPanel({
     }
   }
 
+  /** Carga el contrato vigente de ese tipo y su historial de versiones. */
+  const cargarDocumento = async (tipo: "cliente" | "paseador") => {
+    setDocTipo(tipo)
+    setDocMsg(null)
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("documentos")
+      .select("version, texto, vigente, created_at")
+      .eq("tipo", tipo)
+      .order("created_at", { ascending: false })
+    const filas = data ?? []
+    setDocHistorial(filas.map((d) => ({ version: d.version as string, vigente: d.vigente as boolean, created_at: d.created_at as string })))
+    const vigente = filas.find((d) => d.vigente)
+    if (vigente) {
+      setDocTexto(vigente.texto as string)
+      setDocVersion(vigente.version as string)
+    } else {
+      // Todavía no hay nada en la base: se parte del texto que trae el código
+      setDocTexto(tipo === "cliente" ? CLIENT_CONTRACT : WALKER_CONTRACT)
+      setDocVersion(CONTRACT_VERSION)
+    }
+    // Quién aceptó qué versión, para saber a quién le falta la nueva
+    const { data: acc } = await supabase
+      .from("contracts")
+      .select("user_id, version, accepted_at")
+      .eq("type", tipo)
+      .order("accepted_at", { ascending: false })
+    const mapa: Record<string, string> = {}
+    for (const a of acc ?? []) {
+      // se queda la más reciente de cada persona
+      if (!mapa[a.user_id as string]) mapa[a.user_id as string] = a.version as string
+    }
+    setAceptaciones(mapa)
+  }
+
+  /**
+   * Publica el contrato como versión nueva.
+   *
+   * Si la versión ya existe se rechaza: reescribir una versión publicada
+   * cambiaría el texto que alguien ya aceptó, y eso es justo lo que no debe
+   * pasar. Para cambiar el texto, se sube el número.
+   */
+  const publicarDocumento = async () => {
+    setDocMsg(null)
+    const version = docVersion.trim()
+    if (!version) return setDocMsg("Ponle número de versión (v3, v4…).")
+    if (!docTexto.trim()) return setDocMsg("El texto no puede ir vacío.")
+
+    const yaExiste = docHistorial.find((d) => d.version === version)
+    if (yaExiste) {
+      return setDocMsg(
+        `La versión ${version} ya está publicada y no se puede reescribir: quien la aceptó firmó ESE texto. Súbele el número (por ejemplo ${version.replace(/(\d+)$/, (n) => String(Number(n) + 1))}).`,
+      )
+    }
+
+    const supabase = createClient()
+    const { error } = await supabase.from("documentos").insert({
+      tipo: docTipo,
+      version,
+      texto: docTexto,
+      vigente: true,
+    })
+    if (error) return setDocMsg(`No se guardó: ${error.message}`)
+    setDocMsg(`Publicado como ${version}. Desde ahora es el que se firma al registrarse.`)
+    cargarDocumento(docTipo)
+  }
+
   const guardarPrecios = async () => {
     setPreciosCargando(true)
     setPreciosMsg(null)
@@ -860,12 +943,45 @@ export function AdminPanel({
         return dog.includes(q) || walker.includes(q) || owner.includes(q) || zone.includes(q)
       })
     }
+    // Si Endy movió un paseo a mano, ese orden manda; el resto sigue por fecha.
     return arr.sort((a, b) => {
+      const oa = a.orden
+      const ob = b.orden
+      if (oa != null && ob != null) return oa - ob
+      if (oa != null) return -1
+      if (ob != null) return 1
       const ta = a.scheduled_at ? new Date(a.scheduled_at).getTime() : 0
       const tb = b.scheduled_at ? new Date(b.scheduled_at).getTime() : 0
       return tb - ta
     })
   }, [reservations, search, statusFilter, walkerMap, ownerMap])
+
+  /**
+   * Sube o baja un paseo en la lista.
+   *
+   * Se reescribe el orden de TODA la lista visible para que quede parejo: si
+   * solo se tocaran los dos que se intercambian, los que no tienen número
+   * seguirían mezclándose por fecha y el movimiento se vería al revés.
+   */
+  const moverPaseo = async (id: string, direccion: -1 | 1) => {
+    const lista = filtered.map((r) => r.id)
+    const i = lista.indexOf(id)
+    const j = i + direccion
+    if (i < 0 || j < 0 || j >= lista.length) return
+    ;[lista[i], lista[j]] = [lista[j], lista[i]]
+
+    setReservations((prev) =>
+      prev.map((r) => {
+        const pos = lista.indexOf(r.id)
+        return pos >= 0 ? { ...r, orden: pos } : r
+      }),
+    )
+
+    const supabase = createClient()
+    await Promise.all(
+      lista.map((rid, pos) => supabase.from("reservations").update({ orden: pos }).eq("id", rid)),
+    )
+  }
 
   // Guarda el admin_fee_mxn en una reservación específica (o el paquete entero).
   // value = null → borra el override y vuelve al 30% automático.
@@ -1236,6 +1352,15 @@ export function AdminPanel({
             <DollarSign className="h-4 w-4" />
             Precios
           </button>
+          <button
+            onClick={() => { setView("contrato"); cargarDocumento("cliente") }}
+            className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-all ${
+              view === "contrato" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <FileText className="h-4 w-4" />
+            Contrato
+          </button>
         </div>
 
         {/* Vista tabla */}
@@ -1317,6 +1442,7 @@ export function AdminPanel({
                         }
                       />
                     </th>
+                    <th className="pb-3 pr-2 w-10">Orden</th>
                     <th className="pb-3 pr-4">Fecha</th>
                     <th className="pb-3 pr-4">Perro</th>
                     <th className="pb-3 pr-4">Cliente</th>
@@ -1334,7 +1460,7 @@ export function AdminPanel({
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="py-8 text-center text-muted-foreground">
+                      <td colSpan={14} className="py-8 text-center text-muted-foreground">
                         Sin reservas con esos filtros.
                       </td>
                     </tr>
@@ -1353,6 +1479,26 @@ export function AdminPanel({
                             checked={seleccionPago.has(r.id)}
                             onChange={() => toggleSeleccion(r.id)}
                           />
+                        </td>
+                        {/* Subir/bajar: para armar la ruta del día en el orden
+                            que Endy la va a recorrer, no por fecha. */}
+                        <td className="py-3 pr-2">
+                          <div className="flex flex-col gap-0.5">
+                            <button
+                              onClick={() => moverPaseo(r.id, -1)}
+                              title="Subir"
+                              className="rounded px-1 text-xs leading-none text-muted-foreground hover:bg-secondary hover:text-foreground"
+                            >
+                              ▲
+                            </button>
+                            <button
+                              onClick={() => moverPaseo(r.id, 1)}
+                              title="Bajar"
+                              className="rounded px-1 text-xs leading-none text-muted-foreground hover:bg-secondary hover:text-foreground"
+                            >
+                              ▼
+                            </button>
+                          </div>
                         </td>
                         <td className="py-3 pr-4 font-semibold">
                           {r.scheduled_at ? (
@@ -1829,6 +1975,118 @@ export function AdminPanel({
                   </table>
                 </div>
               )}
+            </div>
+          </section>
+        )}
+
+        {/* Vista contrato: editar el texto y publicar versiones */}
+        {view === "contrato" && (
+          <section className="mt-6 space-y-6">
+            <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-display text-2xl font-extrabold tracking-tight">Contrato</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Edita el texto y publícalo con un número de versión nuevo.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {(["cliente", "paseador"] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => cargarDocumento(t)}
+                      className={`rounded-full px-4 py-2 text-sm font-bold transition ${
+                        docTipo === t ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:bg-secondary/70"
+                      }`}
+                    >
+                      {t === "cliente" ? "Del cliente" : "Del paseador"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <b>Una versión publicada no se puede reescribir.</b> Quien aceptó la v2 firmó ESE texto y así queda
+                registrado. Para cambiarle algo, súbele el número y publica una versión nueva.
+              </p>
+
+              <div className="mt-4 flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="text-sm font-semibold">Versión</label>
+                  <Input
+                    value={docVersion}
+                    onChange={(e) => setDocVersion(e.target.value)}
+                    placeholder="v3"
+                    className="mt-1 w-28"
+                  />
+                </div>
+                <Button onClick={publicarDocumento} className="rounded-full font-bold">
+                  Publicar esta versión
+                </Button>
+                {docMsg && (
+                  <span className={`text-sm font-semibold ${docMsg.startsWith("No se") || docMsg.startsWith("La versión") || docMsg.startsWith("Ponle") || docMsg.startsWith("El texto") ? "text-destructive" : "text-primary"}`}>
+                    {docMsg}
+                  </span>
+                )}
+              </div>
+
+              <textarea
+                value={docTexto}
+                onChange={(e) => setDocTexto(e.target.value)}
+                rows={18}
+                className="mt-4 w-full rounded-2xl border border-border bg-background p-4 font-mono text-xs leading-relaxed"
+              />
+            </div>
+
+            {/* Historial y quién aceptó qué */}
+            <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
+              <h3 className="font-display text-xl font-extrabold">Versiones publicadas</h3>
+              {docHistorial.length === 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Todavía ninguna. El texto de arriba es el que trae el sistema; al publicarlo queda registrado.
+                </p>
+              ) : (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {docHistorial.map((d) => (
+                    <span
+                      key={d.version}
+                      className={`rounded-full px-3 py-1 text-sm font-bold ${
+                        d.vigente ? "bg-emerald-100 text-emerald-800" : "bg-secondary text-muted-foreground"
+                      }`}
+                    >
+                      {d.version}
+                      {d.vigente && " · vigente"}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <h3 className="mt-6 font-display text-lg font-extrabold">Quién ya aceptó la versión vigente</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Los que aparecen en rojo se quedaron en una versión vieja. Píchale al nombre para ver su ficha.
+              </p>
+              <div className="mt-3 space-y-1.5">
+                {users
+                  .filter((u) => (docTipo === "cliente" ? u.role === "dueno" : u.role === "paseador"))
+                  .map((u) => {
+                    const suya = aceptaciones[u.id]
+                    const alDia = suya === docVersion
+                    return (
+                      <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-secondary/40 px-3 py-2 text-sm">
+                        <button onClick={() => setFichaDe(u)} className="font-semibold underline decoration-dotted">
+                          {u.full_name ?? u.email ?? "Sin nombre"}
+                        </button>
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                            alDia ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                          }`}
+                        >
+                          {suya ? (alDia ? `Al día · ${suya}` : `Quedó en ${suya}`) : "Sin aceptar"}
+                        </span>
+                      </div>
+                    )
+                  })}
+              </div>
             </div>
           </section>
         )}
@@ -2355,8 +2613,24 @@ export function AdminPanel({
                         onChange={(e) => updateNewSlot(i, { startHour: e.target.value })}
                       />
                     </div>
+                    {newSlots.length > 1 && (
+                      <button
+                        onClick={() => quitarDia(i)}
+                        className="col-span-2 justify-self-start text-xs font-bold text-destructive underline"
+                      >
+                        Quitar este día
+                      </button>
+                    )}
                   </div>
                 ))}
+                {/* Hay clientes con trato de 4 o de 2 días que no caben en
+                    ningún paquete fijo. El precio se pone a mano abajo. */}
+                <button
+                  onClick={agregarDia}
+                  className="rounded-full bg-primary/15 px-3 py-1 text-xs font-bold text-primary hover:bg-primary/25"
+                >
+                  + Agregar otro día
+                </button>
               </div>
               <div>
                 <label className="text-sm font-semibold">Precio MXN</label>

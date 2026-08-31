@@ -144,6 +144,8 @@ export function ReservarClient({
   const [zone, setZone] = useState("")
   const [zoneOther, setZoneOther] = useState("")
   const [pickupAddress, setPickupAddress] = useState("")
+  /** Foto de la fachada: privada, la ve solo el paseador ya asignado */
+  const [fachada, setFachada] = useState<File | null>(null)
 
   const price = priceForDogs(initialPlan, dogsCount)
 
@@ -209,6 +211,20 @@ export function ReservarClient({
       if (!res.ok) throw new Error(result.error ?? "No pudimos guardar tu reserva")
 
       const firstId: string = result.firstId
+
+      // La foto de la casa se sube después de crear la reserva, porque hasta
+      // aquí no existe el id. Si falla, la reserva NO se cae: es opcional.
+      if (fachada) {
+        try {
+          const fd = new FormData()
+          fd.append("reservationId", firstId)
+          fd.append("file", fachada)
+          const up = await fetch("/api/subir-fachada", { method: "POST", body: fd })
+          if (!up.ok) console.warn("[reservar] fachada no guardada:", (await up.json().catch(() => ({})))?.error)
+        } catch (err) {
+          console.warn("[reservar] fachada no guardada:", err)
+        }
+      }
 
       // Notifica por correo a los paseadores de la zona (el endpoint ignora
       // los paseos 2+ de un paquete para no duplicar correos)
@@ -599,6 +615,31 @@ export function ReservarClient({
                       onChange={(e) => setPickupAddress(e.target.value)}
                       placeholder="Calle Ejemplo #123, entre X y Y, color de portón..."
                     />
+                  </div>
+
+                  {/* La foto es para ubicar la casa, nada más. Se guarda en
+                      privado y solo la abre el paseador que ya tiene el paseo. */}
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="fachada">Foto de la fachada (opcional)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Nos ayuda a encontrar tu casa a la primera. Es <b>información privada</b>: no se comparte con
+                      nadie y solo la ve el paseador que ya tiene asignado tu paseo, nunca los demás.
+                    </p>
+                    <Input
+                      id="fachada"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setFachada(e.target.files?.[0] ?? null)}
+                    />
+                    {fachada && (
+                      <p className="text-xs font-semibold text-primary">Lista: {fachada.name}</p>
+                    )}
+                  </div>
+
+                  {/* Endy pidió recordarlo aquí, que es donde se elige el día */}
+                  <div className="md:col-span-2 rounded-2xl bg-accent/30 px-4 py-3 text-sm">
+                    De preferencia agenda con <b>al menos un día de anticipación</b>: así alcanzamos a asignarte
+                    paseador con tiempo.
                   </div>
                 </div>
               </div>
