@@ -28,7 +28,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { LogoCircle } from "@/components/logo-circle"
 import { createClient } from "@/lib/supabase/client"
-import { STATUS_LABELS, ADMIN_SHARE, adminFeeFor, walkerPayoutFor } from "@/lib/constants"
+import { STATUS_LABELS, ADMIN_SHARE, adminFeeFor, walkerPayoutFor, PLANS } from "@/lib/constants"
+import { CIUDADES, type CiudadId } from "@/lib/ciudades"
 import { mensajesParaReserva, linkWhatsApp } from "@/lib/whatsapp-manual"
 
 export type AdminReservation = {
@@ -178,7 +179,13 @@ export function AdminPanel({
       return next
     })
   }
-  const [view, setView] = useState<"tabla" | "calendario" | "usuarios" | "resenas" | "whatsapp">("tabla")
+  const [view, setView] = useState<"tabla" | "calendario" | "usuarios" | "resenas" | "whatsapp" | "precios">("tabla")
+  /** Editor de precios y de pago al paseador, por ciudad */
+  const [ciudadPrecios, setCiudadPrecios] = useState<CiudadId>("chihuahua")
+  const [tablaPrecios, setTablaPrecios] = useState<Record<string, Record<number, number>>>({})
+  const [tablaPagos, setTablaPagos] = useState<Record<string, Record<number, number>>>({})
+  const [preciosCargando, setPreciosCargando] = useState(false)
+  const [preciosMsg, setPreciosMsg] = useState<string | null>(null)
   // Estado de la conexión de WhatsApp (se carga al abrir la pestaña)
   type WaStatus = {
     configurado: boolean
@@ -603,6 +610,69 @@ export function AdminPanel({
       if (ra !== rb) return ra - rb
       return (a.full_name ?? "").localeCompare(b.full_name ?? "", "es")
     })
+
+  /**
+   * Carga precios y pagos de una ciudad.
+   *
+   * Guardar una ciudad no toca la otra: las filas están separadas por `city`,
+   * así que Endy puede tener CDMX distinto sin arriesgar Chihuahua.
+   */
+  const cargarPrecios = async (ciudad: CiudadId) => {
+    setPreciosCargando(true)
+    setPreciosMsg(null)
+    setCiudadPrecios(ciudad)
+    const supabase = createClient()
+    const [{ data: pr }, { data: pg }] = await Promise.all([
+      supabase.from("precios").select("plan_name, dogs, price_mxn").eq("city", ciudad),
+      supabase.from("pagos_paseador").select("plan_name, dogs, walker_mxn").eq("city", ciudad),
+    ])
+    const armar = <T extends string>(filas: Record<string, unknown>[] | null, campo: T) => {
+      const t: Record<string, Record<number, number>> = {}
+      for (const f of filas ?? []) {
+        const plan = String(f.plan_name)
+        t[plan] = t[plan] ?? {}
+        t[plan][Number(f.dogs)] = Number(f[campo])
+      }
+      return t
+    }
+    setTablaPrecios(armar(pr, "price_mxn"))
+    setTablaPagos(armar(pg, "walker_mxn"))
+    setPreciosCargando(false)
+  }
+
+  /** Guarda la lista completa de esa ciudad. Los paseos ya agendados no se
+   *  tocan: cada reserva congeló su precio al crearse. */
+  const guardarPrecios = async () => {
+    setPreciosCargando(true)
+    setPreciosMsg(null)
+    const filasPrecio: { city: string; plan_name: string; dogs: number; price_mxn: number }[] = []
+    const filasPago: { city: string; plan_name: string; dogs: number; walker_mxn: number }[] = []
+    for (const plan of PLANS) {
+      for (const n of [1, 2, 3]) {
+        const precio = tablaPrecios[plan.name]?.[n]
+        const pago = tablaPagos[plan.name]?.[n]
+        if (precio != null && !Number.isNaN(precio)) {
+          filasPrecio.push({ city: ciudadPrecios, plan_name: plan.name, dogs: n, price_mxn: Math.max(0, Math.round(precio)) })
+        }
+        if (pago != null && !Number.isNaN(pago)) {
+          filasPago.push({ city: ciudadPrecios, plan_name: plan.name, dogs: n, walker_mxn: Math.max(0, Math.round(pago)) })
+        }
+      }
+    }
+    const supabase = createClient()
+    const [r1, r2] = await Promise.all([
+      supabase.from("precios").upsert(filasPrecio, { onConflict: "city,plan_name,dogs" }),
+      supabase.from("pagos_paseador").upsert(filasPago, { onConflict: "city,plan_name,dogs" }),
+    ])
+    setPreciosCargando(false)
+    if (r1.error || r2.error) {
+      setPreciosMsg(`No se guardó: ${r1.error?.message ?? r2.error?.message}`)
+      return
+    }
+    setPreciosMsg("Guardado. La página de precios ya muestra los nuevos.")
+    // La página pública es del servidor: se le pide que vuelva a leer
+    router.refresh()
+  }
 
   const marcarPagosMasivo = async (paid: boolean) => {
     const ids = Array.from(seleccionPago)
@@ -1126,6 +1196,15 @@ export function AdminPanel({
             <MessageCircle className="h-4 w-4" />
             WhatsApp
           </button>
+          <button
+            onClick={() => { setView("precios"); cargarPrecios("chihuahua") }}
+            className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-all ${
+              view === "precios" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <DollarSign className="h-4 w-4" />
+            Precios
+          </button>
         </div>
 
         {/* Vista tabla */}
@@ -1522,6 +1601,118 @@ export function AdminPanel({
                     ownerMap={ownerMap}
                   />
                 ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Vista precios: la lista de cada ciudad y lo que gana el paseador */}
+        {view === "precios" && (
+          <section className="mt-6 space-y-6">
+            <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-display text-2xl font-extrabold tracking-tight">Precios y pagos</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Lo que cobras al cliente y lo que le pagas al paseador, por paquete y por ciudad.
+                    Al guardar, la página de precios se actualiza sola.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {CIUDADES.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => cargarPrecios(c.id)}
+                      className={`rounded-full px-4 py-2 text-sm font-bold transition ${
+                        ciudadPrecios === c.id
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-secondary text-muted-foreground hover:bg-secondary/70"
+                      }`}
+                    >
+                      {c.corto}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <p className="mt-4 rounded-2xl bg-accent/30 px-4 py-3 text-sm">
+                <b>Los clientes que ya reservaron no se ven afectados.</b> Cada paseo guardó su precio el día que se
+                agendó; esto solo cambia las reservas nuevas.
+              </p>
+
+              {preciosCargando && <p className="mt-4 text-sm text-muted-foreground">Cargando…</p>}
+
+              <div className="mt-5 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                      <th className="pb-3 pr-4">Paquete</th>
+                      <th className="whitespace-nowrap pb-3 pr-4">1 perro</th>
+                      <th className="whitespace-nowrap pb-3 pr-4">2 perros</th>
+                      <th className="whitespace-nowrap pb-3 pr-4">3 perros</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {PLANS.map((plan) => (
+                      <tr key={plan.id} className="border-b border-border/50">
+                        <td className="py-3 pr-4 font-semibold">
+                          {plan.name}
+                          <div className="text-xs font-normal text-muted-foreground">{plan.walks}</div>
+                        </td>
+                        {[1, 2, 3].map((n) => (
+                          <td key={n} className="py-3 pr-4">
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                value={tablaPrecios[plan.name]?.[n] ?? ""}
+                                onChange={(e) =>
+                                  setTablaPrecios((t) => ({
+                                    ...t,
+                                    [plan.name]: { ...(t[plan.name] ?? {}), [n]: Number(e.target.value) },
+                                  }))
+                                }
+                                className="w-24 rounded-md border border-border bg-background px-2 py-1"
+                              />
+                            </div>
+                            <div className="mt-1 flex items-center gap-1">
+                              <span className="text-[10px] text-muted-foreground">paseador $</span>
+                              <input
+                                type="number"
+                                min={0}
+                                value={tablaPagos[plan.name]?.[n] ?? ""}
+                                onChange={(e) =>
+                                  setTablaPagos((t) => ({
+                                    ...t,
+                                    [plan.name]: { ...(t[plan.name] ?? {}), [n]: Number(e.target.value) },
+                                  }))
+                                }
+                                className="w-20 rounded-md border border-border bg-secondary/40 px-2 py-0.5 text-xs"
+                              />
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="mt-3 text-xs text-muted-foreground">
+                El renglón chico es lo que gana el paseador por ese paquete, en pesos. En cada paseo lo puedes
+                cambiar a mano desde la columna Reparto, igual que hoy.
+              </p>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <Button onClick={guardarPrecios} disabled={preciosCargando} className="rounded-full font-bold">
+                  {preciosCargando ? "Guardando…" : `Guardar ${CIUDADES.find((c) => c.id === ciudadPrecios)?.corto}`}
+                </Button>
+                {preciosMsg && (
+                  <span className={`text-sm font-semibold ${preciosMsg.startsWith("No se") ? "text-destructive" : "text-primary"}`}>
+                    {preciosMsg}
+                  </span>
+                )}
               </div>
             </div>
           </section>

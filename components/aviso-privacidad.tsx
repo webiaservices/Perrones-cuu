@@ -54,20 +54,26 @@ export function AvisoPrivacidadContenido({ compacto = false }: { compacto?: bool
         después de la relación. Esto incluye el período en que el paseador deje de operar con la Plataforma.
       </p>
 
-      <h2 className={h}>5. Rastreo por GPS</h2>
+      <h2 className={h}>5. Seguro y cobertura</h2>
       <p>
-        Cuando el cliente solicita el rastreo en tiempo real, el recorrido del paseo se registra mientras dura el
-        servicio y se comparte únicamente con el dueño del perro. La ubicación se toma del dispositivo del paseador
-        durante el paseo y no se usa para ningún otro fin.
+        La cobertura de seguro para mascotas únicamente aplica cuando el paseo se gestiona dentro de Perrones Cuu.
+        Cualquier servicio fuera de la Plataforma queda sin protección.
       </p>
 
-      <h2 className={h}>6. Tus derechos (ARCO)</h2>
+      <h2 className={h}>6. Rastreo por GPS</h2>
+      <p>
+        El rastreo en tiempo real viene incluido en el servicio y se activa cuando el cliente lo solicita por
+        WhatsApp. Mientras dura el paseo se registra el recorrido y se comparte únicamente con el dueño del perro. La
+        ubicación se toma del dispositivo del paseador durante el servicio y no se usa para ningún otro fin.
+      </p>
+
+      <h2 className={h}>7. Tus derechos (ARCO)</h2>
       <p>
         Puedes acceder, rectificar, cancelar u oponerte al tratamiento de tus datos personales escribiendo a
         hola@perronescuu.com o por WhatsApp al +52 614 594 8513.
       </p>
 
-      <h2 className={h}>7. Cambios al aviso</h2>
+      <h2 className={h}>8. Cambios al aviso</h2>
       <p>
         Cualquier cambio sustancial será notificado dentro de la Plataforma. La versión vigente siempre estará
         disponible en esta página.

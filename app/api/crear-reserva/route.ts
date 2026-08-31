@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { PLANS, priceForDogs } from "@/lib/constants"
+import { precioDe } from "@/lib/precios"
+import { ciudadSegura, zonasDe } from "@/lib/ciudades"
 
 /**
  * Crea la reserva del lado del SERVIDOR.
@@ -78,8 +80,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Uno de los perros seleccionados no existe. Recarga la página." }, { status: 400 })
     }
 
-    // 4. Precio OFICIAL calculado en el servidor
-    const price = priceForDogs(plan, dogs.length)
+    // 4. Precio OFICIAL calculado en el servidor, con la lista de SU ciudad.
+    //    La ciudad sale del perfil, nunca del navegador: si el cliente la
+    //    mandara, elegiría la lista más barata.
+    const { data: perfilCliente } = await supa
+      .from("profiles")
+      .select("city")
+      .eq("id", user.id)
+      .maybeSingle()
+    const ciudad = ciudadSegura(perfilCliente?.city)
+    const price = await precioDe(ciudad, plan.name, dogs.length)
+    if (!price) {
+      // Nunca cobrar $0 por un error de configuración: mejor frenar la reserva
+      return NextResponse.json(
+        { error: "No pudimos calcular el precio. Escríbenos por WhatsApp y lo agendamos a mano." },
+        { status: 500 },
+      )
+    }
+
+    // La zona tiene que ser de esa ciudad, o el paseo cae en una colonia que
+    // ningún paseador de allá atiende.
+    const zonasValidas = zonasDe(ciudad)
+    if (!zonasValidas.includes(zone) && !String(zone).trim()) {
+      return NextResponse.json({ error: "Elige una zona válida para tu ciudad." }, { status: 400 })
+    }
 
     const dogNames = dogs.map((d) => d.name).join(", ")
     const dogSizes = dogs.map((d) => d.size).filter(Boolean).join("/")
@@ -117,6 +141,7 @@ export async function POST(req: NextRequest) {
         scheduled_at: at.toISOString(),
         scheduled_until: until.toISOString(),
         zone,
+        city: ciudad,
         pickup_address: pickupAddress,
         dog_name: dogNames,
         dog_size: dogSizes,

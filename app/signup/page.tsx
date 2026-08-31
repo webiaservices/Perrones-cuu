@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { LogoCircle } from "@/components/logo-circle"
+import { CIUDADES, zonasDe, type CiudadId } from "@/lib/ciudades"
 import { ContractModal } from "@/components/contract-modal"
 import { PrivacidadModal } from "@/components/privacidad-modal"
 import { ZONES, WEEKDAYS } from "@/lib/constants"
@@ -44,6 +45,8 @@ function SignUpForm() {
   const [zoneOther, setZoneOther] = useState("")
   const [days, setDays] = useState<string[]>([])
   const [accepted, setAccepted] = useState(false)
+  /** Ciudad: define precios, colonias y si el registro de paseadores está abierto */
+  const [city, setCity] = useState<CiudadId>("chihuahua")
   const [contractOpen, setContractOpen] = useState(false)
   /** El aviso se lee en ventana emergente para no sacar a nadie del registro a medias */
   const [privacyOpen, setPrivacyOpen] = useState(false)
@@ -108,6 +111,7 @@ function SignUpForm() {
             phone,
             role,
             zone: role === "paseador" ? (zone === "Otra" ? zoneOther : zone) : null,
+            city,
             available_hours: role === "paseador" ? availableHours : {},
             bank_name: role === "paseador" ? bankName : null,
             bank_clabe: role === "paseador" ? bankClabe : null,
@@ -230,6 +234,30 @@ function SignUpForm() {
                   required
                 />
               </div>
+              <div className="flex flex-col gap-2 sm:col-span-2">
+                <Label htmlFor="city">Ciudad</Label>
+                <Select
+                  value={city}
+                  onValueChange={(v) => {
+                    setCity(v as CiudadId)
+                    // Las colonias son de otra ciudad: se limpia para no dejar
+                    // a alguien de CDMX registrado en una colonia de Chihuahua
+                    setZone("")
+                    setZoneOther("")
+                  }}
+                >
+                  <SelectTrigger id="city">
+                    <SelectValue placeholder="Selecciona tu ciudad" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CIUDADES.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.corto}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
 
@@ -243,7 +271,7 @@ function SignUpForm() {
                     <SelectValue placeholder="Selecciona tu zona" />
                   </SelectTrigger>
                   <SelectContent>
-                    {ZONES.map((z) => (
+                    {zonasDe(city).map((z) => (
                       <SelectItem key={z} value={z}>
                         {z}
                       </SelectItem>

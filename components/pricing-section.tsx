@@ -8,10 +8,29 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { BRAND, PLANS, PLAN_FEATURES, priceForDogs } from "@/lib/constants"
+import { CIUDADES, type CiudadId } from "@/lib/ciudades"
+import type { TablaPrecios } from "@/lib/precios"
 
-export function PricingSection() {
+export function PricingSection({
+  precios,
+  ciudad,
+  onCiudadChange,
+}: {
+  /** Precios de las dos ciudades, ya leídos de la base por el servidor */
+  precios?: Record<CiudadId, TablaPrecios>
+  ciudad?: CiudadId
+  onCiudadChange?: (c: CiudadId) => void
+} = {}) {
   const [dogs, setDogs] = useState("1")
   const dogCount = Number(dogs)
+  // Si el padre no maneja la ciudad, esta sección la maneja sola
+  const [ciudadLocal, setCiudadLocal] = useState<CiudadId>("chihuahua")
+  const ciudadActiva = ciudad ?? ciudadLocal
+  const cambiarCiudad = (c: CiudadId) => {
+    setCiudadLocal(c)
+    onCiudadChange?.(c)
+  }
+  const tabla = precios?.[ciudadActiva]
 
   return (
     <section id="precios" className="px-4 py-16 md:py-24">
@@ -21,6 +40,23 @@ export function PricingSection() {
           <p className="mt-3 text-muted-foreground leading-relaxed">
             Elige cuántos perros pasea Perrones Cuu y mira el precio al instante. Todo incluye seguro para tu perrito.
           </p>
+        </div>
+
+        {/* La ciudad va primero: cambia la lista completa de precios */}
+        <div className="mb-4 flex justify-center">
+          <Tabs value={ciudadActiva} onValueChange={(v) => cambiarCiudad(v as CiudadId)}>
+            <TabsList className="h-11 rounded-full bg-secondary p-1">
+              {CIUDADES.map((c) => (
+                <TabsTrigger
+                  key={c.id}
+                  value={c.id}
+                  className="rounded-full px-5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                >
+                  {c.corto}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
         </div>
 
         <div className="mb-10 flex justify-center">
@@ -42,7 +78,7 @@ export function PricingSection() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {PLANS.map((plan) => {
             const popular = plan.badge === "Popular"
-            const price = priceForDogs(plan, dogCount)
+            const price = tabla?.[plan.name]?.[dogCount as 1 | 2 | 3] ?? priceForDogs(plan, dogCount)
             return (
               <div
                 key={plan.id}

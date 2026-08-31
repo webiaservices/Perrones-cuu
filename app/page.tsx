@@ -15,6 +15,7 @@ import { LogoCircle } from "@/components/logo-circle"
 import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
 import { PricingSection } from "@/components/pricing-section"
+import { preciosDe } from "@/lib/precios"
 import { VideosSection } from "@/components/videos-section"
 import { ReviewsMarquee } from "@/components/reviews-marquee"
 import { BRAND } from "@/lib/constants"
@@ -94,6 +95,12 @@ async function getRealReviews() {
 }
 
 export default async function HomePage() {
+  // Los precios los edita Endy desde el panel; se leen en cada carga para que
+  // el cambio se vea sin volver a desplegar.
+  const [preciosChihuahua, preciosCdmx] = await Promise.all([
+    preciosDe("chihuahua"),
+    preciosDe("cdmx"),
+  ])
   const realReviews = await getRealReviews()
   // Se muestran TODAS las reales rotando. Si hay pocas, rellenamos con las de
   // respaldo solo para que el carrusel no se vea vacío (a partir de ~5 reales
@@ -277,7 +284,7 @@ export default async function HomePage() {
         </section>
 
         {/* Pricing */}
-        <PricingSection />
+        <PricingSection precios={{ chihuahua: preciosChihuahua, cdmx: preciosCdmx }} />
 
         {/* Testimonios */}
         <section id="resenas" className="bg-secondary/40 px-4 py-16 md:py-24">
