@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect} from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -122,6 +122,25 @@ export function WalkerPanel({
 
   // Manual: aceptado solo cuenta si es la versión vigente. Si el manual se
   // actualiza, vuelve a pedirse la aceptación sin borrar la anterior.
+  /** Aviso de sección nueva del manual. No bloquea nada (Endy pidió que no se
+   *  les parara la operación), pero tampoco se les pasa por encima: sale al
+   *  entrar, con su botón para ir a leerla, y se recuerda que ya lo vio. */
+  const [avisoNuevoVisto, setAvisoNuevoVisto] = useState(true)
+  useEffect(() => {
+    try {
+      setAvisoNuevoVisto(localStorage.getItem(`manual-nuevo-${MANUAL_VERSION}-8`) === "1")
+    } catch {
+      // Modo privado o cookies bloqueadas: se muestra el aviso, no pasa nada
+      setAvisoNuevoVisto(false)
+    }
+  }, [])
+  const cerrarAvisoNuevo = () => {
+    setAvisoNuevoVisto(true)
+    try {
+      localStorage.setItem(`manual-nuevo-${MANUAL_VERSION}-8`, "1")
+    } catch {}
+  }
+
   const [aceptadoEn, setAceptadoEn] = useState<string | null>(
     manualVersionAceptada === MANUAL_VERSION ? manualAceptadoEn : null,
   )
@@ -496,6 +515,38 @@ export function WalkerPanel({
             )}
           </button>
         </div>
+
+        {/* Hay algo nuevo en el manual. NO bloquea: solo que no se les pase. */}
+        {aceptadoEn && !avisoNuevoVisto && (
+          <div className="mt-5 rounded-3xl border-2 border-amber-300 bg-amber-50 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                <div>
+                  <p className="font-display text-lg font-extrabold text-amber-950">
+                    Hay algo nuevo en el manual
+                  </p>
+                  <p className="mt-1 text-sm text-amber-900">
+                    Agregamos <b>cómo usar el GPS</b> cuando te lo pidamos. Lo importante: se le pica a{" "}
+                    <b>Iniciar paseo</b>, NO a Recoger — si le picas a la otra, el recorrido no se registra y el
+                    cliente no ve nada.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => { setView("manual"); cerrarAvisoNuevo() }}
+                  className="rounded-full bg-amber-500 font-bold text-white hover:bg-amber-600"
+                >
+                  Leerlo
+                </Button>
+                <Button onClick={cerrarAvisoNuevo} variant="outline" className="rounded-full font-bold">
+                  Ya lo vi
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Sin el manual aceptado no se puede tomar ningún paseo — y el
             servidor lo valida, así que esto no es solo un letrero. Va arriba

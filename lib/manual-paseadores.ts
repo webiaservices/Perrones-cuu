@@ -19,6 +19,9 @@ export type ManualSeccion = {
   puntos?: string[]
   /** Subsecciones con su propio título. */
   subsecciones?: { titulo: string; puntos: string[] }[]
+  /** Marca la sección como recién agregada: sale con etiqueta NUEVO
+   *  en el panel, sin obligar a re-aceptar todo el manual. */
+  nueva?: boolean
   /** Tabla de "a quién avisar". */
   tabla?: { encabezados: string[]; filas: string[][] }
 }
@@ -131,6 +134,7 @@ export const MANUAL_SECCIONES: ManualSeccion[] = [
   },
   {
     titulo: "8. Qué hacer si te pedimos GPS",
+    nueva: true,
     puntos: [
       "El rastreo viene incluido en el servicio, pero solo se activa cuando el cliente lo pide. Si ese paseo lleva GPS, nosotros te avisamos antes por WhatsApp. Si no te avisamos, no tienes que abrir nada.",
     ],

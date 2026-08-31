@@ -27,8 +27,13 @@ export function ManualPaseadores() {
             key={sec.titulo}
             className="rounded-3xl border border-border bg-background p-6 shadow-sm print:border-0 print:p-0 print:shadow-none"
           >
-            <h2 className="font-display text-xl font-extrabold tracking-tight text-primary print:text-foreground">
+            <h2 className="flex flex-wrap items-center gap-2 font-display text-xl font-extrabold tracking-tight text-primary print:text-foreground">
               {sec.titulo}
+              {sec.nueva && (
+                <span className="rounded-full bg-amber-400 px-2.5 py-0.5 text-xs font-extrabold text-amber-950 print:hidden">
+                  NUEVO
+                </span>
+              )}
             </h2>
 
             {sec.intro?.map((p) => (
