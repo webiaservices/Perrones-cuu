@@ -59,9 +59,12 @@ export function PanelClient({
   ownerMap,
   walkerNameMap = {},
   mostrarAvisoRutas = false,
+  contrato,
 }: {
   /** Lo prende y apaga Endy desde su panel */
   mostrarAvisoRutas?: boolean
+  /** Contrato vigente y si a esta persona le falta firmarlo */
+  contrato?: { version: string; texto: string; debeRefirmar: boolean; versionFirmada: string | null }
   role: string
   fullName: string | null
   email: string
@@ -246,6 +249,29 @@ export function PanelClient({
                 Rastreo GPS
               </Button>
             </div>
+
+            {/* Contrato nuevo por firmar. Va arriba de todo y no se puede
+                cerrar: es lo que respalda legalmente el servicio, y si se
+                esconde en un menú nadie lo firma. */}
+            {contrato?.debeRefirmar && (
+              <div className="mb-4 rounded-2xl border-2 border-amber-400 bg-amber-50 p-5">
+                <p className="font-display text-lg font-extrabold text-amber-950">
+                  Hay una versión nueva del contrato
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-amber-900">
+                  {contrato.versionFirmada
+                    ? `Usted aceptó la versión ${contrato.versionFirmada} y ahora va la ${contrato.version}.`
+                    : "Todavía no tenemos registrada su aceptación del contrato."}{" "}
+                  Léalo y acéptelo para seguir agendando paseos con normalidad.
+                </p>
+                <Button
+                  onClick={() => setContratoAbierto(true)}
+                  className="mt-3 rounded-full bg-amber-500 font-bold text-white hover:bg-amber-600"
+                >
+                  Leerlo y aceptarlo
+                </Button>
+              </div>
+            )}
 
             {/* Precio por ruta: se invita a preguntar, nunca se publica el
                 descuento. Endy lo prende y apaga desde su panel. */}
@@ -579,9 +605,20 @@ export function PanelClient({
       <ContractModal
         open={contratoAbierto}
         onOpenChange={setContratoAbierto}
-        title="Contrato de prestación de servicios"
-        text={CLIENT_CONTRACT}
-        onAccept={() => setContratoAbierto(false)}
+        title={`Contrato de prestación de servicios${contrato?.version ? ` · ${contrato.version}` : ""}`}
+        text={contrato?.texto ?? CLIENT_CONTRACT}
+        onAccept={async () => {
+          setContratoAbierto(false)
+          // Solo se registra si de verdad faltaba: si ya estaba al día, abrir
+          // el contrato para leerlo no debe generar una firma nueva.
+          if (!contrato?.debeRefirmar) return
+          try {
+            await fetch("/api/aceptar-contrato", { method: "POST" })
+            router.refresh()
+          } catch (e) {
+            console.warn("[panel] no se registró la aceptación:", e)
+          }
+        }}
       />
       <PrivacidadModal open={privacidadAbierta} onOpenChange={setPrivacidadAbierta} />
 

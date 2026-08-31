@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { PanelClient, type Reservation } from "./panel-client"
 import { leerAjustes } from "@/lib/ajustes"
+import { documentoVigente } from "@/lib/documentos"
 import { AdminPanel, type AdminReservation } from "./admin-panel"
 import { WalkerPanel, type WalkerReservation } from "./walker-panel"
 
@@ -144,8 +145,27 @@ export default async function PanelPage() {
 
   const ajustes = await leerAjustes()
 
+  // ¿Le falta firmar la versión vigente del contrato? Se compara lo último que
+  // aceptó contra lo que está publicado hoy.
+  const contratoVigente = await documentoVigente("cliente")
+  const { data: firmas } = await supabase
+    .from("contracts")
+    .select("version, accepted_at")
+    .eq("user_id", user.id)
+    .eq("type", "cliente")
+    .order("accepted_at", { ascending: false })
+    .limit(1)
+  const versionFirmada = firmas?.[0]?.version ?? null
+  const debeRefirmar = versionFirmada !== contratoVigente.version
+
   return (
     <PanelClient
+      contrato={{
+        version: contratoVigente.version,
+        texto: contratoVigente.texto,
+        debeRefirmar,
+        versionFirmada,
+      }}
       mostrarAvisoRutas={ajustes.aviso_rutas_panel_cliente}
       role={role}
       fullName={profile?.full_name ?? null}

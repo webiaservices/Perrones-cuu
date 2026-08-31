@@ -756,6 +756,22 @@ export function AdminPanel({
     cargarDocumento(docTipo)
   }
 
+  /**
+   * Le pide a alguien que vuelva a firmar.
+   *
+   * En realidad el aviso ya le sale solo a quien tenga una versión vieja: esto
+   * solo deja constancia de la fecha en que se le pidió, para saber desde
+   * cuándo lleva sin firmar.
+   */
+  const pedirReaceptacion = async (userId: string) => {
+    const supabase = createClient()
+    const { error } = await supabase
+      .from("profiles")
+      .update({ contrato_reaceptacion_pedida_at: new Date().toISOString() })
+      .eq("id", userId)
+    setDocMsg(error ? `No se pudo: ${error.message}` : "Listo: le sale el aviso la próxima vez que entre.")
+  }
+
   const guardarPrecios = async () => {
     setPreciosCargando(true)
     setPreciosMsg(null)
@@ -2076,13 +2092,24 @@ export function AdminPanel({
                         <button onClick={() => setFichaDe(u)} className="font-semibold underline decoration-dotted">
                           {u.full_name ?? u.email ?? "Sin nombre"}
                         </button>
-                        <span
-                          className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                            alDia ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
-                          }`}
-                        >
-                          {suya ? (alDia ? `Al día · ${suya}` : `Quedó en ${suya}`) : "Sin aceptar"}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                              alDia ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                            }`}
+                          >
+                            {suya ? (alDia ? `Al día · ${suya}` : `Quedó en ${suya}`) : "Sin aceptar"}
+                          </span>
+                          {!alDia && (
+                            <button
+                              onClick={() => pedirReaceptacion(u.id)}
+                              className="rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-bold text-primary hover:bg-primary/25"
+                              title="Le sale el aviso al entrar a su panel"
+                            >
+                              Pedirle que firme
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )
                   })}
