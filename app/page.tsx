@@ -38,6 +38,13 @@ const STEPS = [
     title: "Te enlazamos con un paseador",
     text: "Te asignamos un operador verificado de tu zona. Recibes foto y reporte al terminar.",
   },
+  {
+    icon: Navigation,
+    title: "Míralo en tiempo real",
+    text:
+      "Si lo solicitas, activamos el rastreo por GPS. Escríbenos por WhatsApp con tu correo y, cuando " +
+      "recojamos a tu perrito, te llega el enlace para ver el recorrido en vivo. Sin instalar nada, sin costo extra.",
+  },
 ]
 
 // Testimonios de respaldo si la DB todavía no tiene reseñas reales
@@ -112,16 +119,22 @@ export default async function HomePage() {
 
           <div className="relative mx-auto grid max-w-6xl items-center gap-12 md:grid-cols-2">
             <Reveal from="left" immediate>
-              <span className="inline-flex items-center gap-2 rounded-full bg-accent/60 px-4 py-1.5 text-sm font-bold text-accent-foreground transition-transform hover:scale-105">
-                <MapPin className="h-4 w-4" />
-                {BRAND.city}
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-2 rounded-full bg-accent/60 px-4 py-1.5 text-sm font-bold text-accent-foreground transition-transform hover:scale-105">
+                  <MapPin className="h-4 w-4" />
+                  Ciudad Chihuahua, Chih.
+                </span>
+                <span className="inline-flex items-center gap-2 rounded-full bg-accent/60 px-4 py-1.5 text-sm font-bold text-accent-foreground transition-transform hover:scale-105">
+                  <MapPin className="h-4 w-4" />
+                  Ciudad de México
+                </span>
+              </div>
               <h1 className="mt-6 font-display text-balance text-5xl font-extrabold leading-[0.95] tracking-tight md:text-7xl">
                 <span className="block text-foreground">Perros felices,</span>
                 <span className="block text-primary">dueños tranquilos.</span>
               </h1>
               <p className="mt-6 max-w-md text-pretty text-lg leading-relaxed text-muted-foreground">
-                Paseadores certificados que aman los perros tanto como tú. En Chihuahua, a un mensaje de distancia.
+                Paseadores certificados que aman los perros tanto como tú. En Chihuahua y Ciudad de México, a un mensaje de distancia.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center md:justify-start">
                 <Button asChild size="lg" className="shine group h-12 rounded-full px-7 text-base font-bold transition-transform hover:scale-[1.03] active:scale-[0.97]">
@@ -302,7 +315,7 @@ export default async function HomePage() {
                   Tu perro ya quiere salir.
                 </h2>
                 <p className="mt-3 text-pretty text-lg leading-relaxed text-primary-foreground/90">
-                  Únete a más de 300 dueños en Chihuahua que confían en Perrones para mantener a sus perritos activos y
+                  Únete a más de 300 dueños en Chihuahua y Ciudad de México que confían en Perrones para mantener a sus perritos activos y
                   felices.
                 </p>
                 <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">

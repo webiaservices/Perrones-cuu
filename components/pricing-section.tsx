@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { PLANS, PLAN_FEATURES, priceForDogs } from "@/lib/constants"
+import { BRAND, PLANS, PLAN_FEATURES, priceForDogs } from "@/lib/constants"
 
 export function PricingSection() {
   const [dogs, setDogs] = useState("1")
@@ -93,6 +93,22 @@ export function PricingSection() {
         <p className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
           <ShieldCheck className="h-4 w-4 text-primary" />
           Cada paseo incluye seguro para tu perrito.
+        </p>
+
+        {/* Rutas agrupadas: se invita a preguntar, nunca se muestra el descuento.
+            Endy fija el precio caso por caso; publicar un porcentaje lo amarraría. */}
+        <p className="mx-auto mt-3 max-w-xl text-center text-xs leading-relaxed text-muted-foreground">
+          ¿Vive cerca de otros clientes? Podemos ofrecerle un mejor precio si su domicilio queda dentro de una ruta
+          activa. Escríbanos su colonia al{" "}
+          <a
+            href={BRAND.whatsappLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-primary underline"
+          >
+            614 594 8513
+          </a>{" "}
+          y se lo confirmamos.
         </p>
       </div>
     </section>

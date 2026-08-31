@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { LogoCircle } from "@/components/logo-circle"
 import { ContractModal } from "@/components/contract-modal"
+import { PrivacidadModal } from "@/components/privacidad-modal"
 import { ZONES, WEEKDAYS } from "@/lib/constants"
 import { CLIENT_CONTRACT, WALKER_CONTRACT, CONTRACT_VERSION } from "@/lib/contract-text"
 import { cn } from "@/lib/utils"
@@ -44,6 +45,8 @@ function SignUpForm() {
   const [days, setDays] = useState<string[]>([])
   const [accepted, setAccepted] = useState(false)
   const [contractOpen, setContractOpen] = useState(false)
+  /** El aviso se lee en ventana emergente para no sacar a nadie del registro a medias */
+  const [privacyOpen, setPrivacyOpen] = useState(false)
   const [bankName, setBankName] = useState("")
   const [bankClabe, setBankClabe] = useState("")
   const [birthDate, setBirthDate] = useState("")
@@ -171,7 +174,11 @@ function SignUpForm() {
             <LogoCircle className="h-14 w-14" />
           </Link>
           <h1 className="mt-4 text-2xl font-extrabold tracking-tight">Crea tu cuenta</h1>
-          <p className="text-sm text-muted-foreground">Únete a Perrones Cuu en Chihuahua</p>
+          <p className="text-sm text-muted-foreground">
+            {role === "dueno"
+              ? "Paseos para tu perrito en Chihuahua y Ciudad de México"
+              : "Únete a nuestro equipo en Chihuahua y Ciudad de México"}
+          </p>
         </div>
 
         <form
@@ -217,7 +224,7 @@ function SignUpForm() {
                 <Input
                   id="phone"
                   type="tel"
-                  placeholder="+52 614 ..."
+                  placeholder="+52 ..."
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   required
@@ -291,7 +298,10 @@ function SignUpForm() {
               {/* Cuenta bancaria del paseador */}
               <div className="rounded-2xl border border-border bg-secondary/40 p-4">
                 <p className="font-bold">Cuenta bancaria para recibir tus pagos</p>
-                <p className="text-xs text-muted-foreground">Te depositamos aquí el 70% de cada paseo. Tus datos son confidenciales.</p>
+                <p className="text-xs text-muted-foreground">
+                  Aquí te depositamos tu pago semanal. El monto se acuerda contigo antes de empezar:
+                  puede ser por paseo o por ruta, según el caso. Tus datos son confidenciales.
+                </p>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <div className="flex flex-col gap-1">
                     <Label htmlFor="bankName">Banco</Label>
@@ -318,7 +328,14 @@ function SignUpForm() {
                 Foto de tu INE, pasaporte o licencia. Con ella dejamos constancia de quién leyó y aceptó el
                 contrato de servicios, y de quién responde si alguna de las partes no lo cumple —{" "}
                 <b className="text-foreground">por eso vale la pena leerlo con calma antes de aceptar</b>.
-                Es privada: solo la ve Perrones Cuu, nunca los paseadores.
+                Es privada: solo la ve Perrones Cuu, nunca los paseadores.{" "}
+                <button
+                  type="button"
+                  className="font-semibold text-primary underline"
+                  onClick={() => setPrivacyOpen(true)}
+                >
+                  Consulta cómo la protegemos en nuestro aviso de privacidad.
+                </button>
               </p>
               <Input
                 id="idFile"
@@ -370,6 +387,14 @@ function SignUpForm() {
                   onClick={() => setContractOpen(true)}
                 >
                   contrato de prestación de servicios
+                </button>{" "}
+                y el{" "}
+                <button
+                  type="button"
+                  className="font-bold text-primary underline"
+                  onClick={() => setPrivacyOpen(true)}
+                >
+                  aviso de privacidad
                 </button>
                 .
               </Label>
@@ -398,6 +423,7 @@ function SignUpForm() {
         text={contractText}
         onAccept={() => setAccepted(true)}
       />
+      <PrivacidadModal open={privacyOpen} onOpenChange={setPrivacyOpen} />
     </div>
   )
 }

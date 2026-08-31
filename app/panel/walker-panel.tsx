@@ -48,6 +48,7 @@ export type WalkerReservation = {
   pickup_address: string | null
   dog_name: string | null
   dog_size: string | null
+  dog_breed: string | null
   walker_id: string | null
   package_id?: string | null
   package_index?: number | null
@@ -656,10 +657,10 @@ export function WalkerPanel({
                       </div>
 
                       <div className="mt-3 grid grid-cols-1 gap-x-5 gap-y-1.5 text-sm text-muted-foreground sm:grid-cols-2">
-                        {r.dog_size && (
+                        {(r.dog_size || r.dog_breed) && (
                           <span className="flex items-center gap-1.5">
                             <Dog className="h-4 w-4" />
-                            Tamaño: {r.dog_size}
+                            {[r.dog_breed, r.dog_size && `Tamaño: ${r.dog_size}`].filter(Boolean).join(" · ")}
                             {r.dogs_count > 1 && ` · ${r.dogs_count} perros`}
                           </span>
                         )}
@@ -1020,6 +1021,7 @@ function ReservationDetailModal({
         </div>
 
         <div className="mt-4 space-y-2 text-sm">
+          {reservation.dog_breed && <p><b>Raza:</b> {reservation.dog_breed}</p>}
           {reservation.dog_size && <p><b>Tamaño:</b> {reservation.dog_size}{reservation.dogs_count > 1 && ` · ${reservation.dogs_count} perros`}</p>}
           {reservation.scheduled_at && (
             <p>

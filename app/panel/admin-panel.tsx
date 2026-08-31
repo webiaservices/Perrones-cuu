@@ -280,6 +280,8 @@ export function AdminPanel({
   /** Reserva para la que se está armando un WhatsApp a mano (sin la API de Meta) */
   const [waManualFor, setWaManualFor] = useState<AdminReservation | null>(null)
   // Buscador dentro del modal de asignar paseador (son muchos para scrollear)
+  /** Filtro de la vista Usuarios: ver solo dueños, solo paseadores, o todos */
+  const [filtroRol, setFiltroRol] = useState<"todos" | "dueno" | "paseador">("todos")
   const [walkerSearch, setWalkerSearch] = useState("")
   const [assigning, setAssigning] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -295,6 +297,7 @@ export function AdminPanel({
     zone: "",
     pickup_address: "",
     dog_name: "",
+    dog_breed: "",
     dog_size: "mediano",
     scheduled_at: "",
     notes: "",
@@ -374,6 +377,7 @@ export function AdminPanel({
         zone: newPaseo.zone,
         pickup_address: newPaseo.pickup_address,
         dog_name: newPaseo.dog_name,
+        dog_breed: newPaseo.dog_breed || null,
         dog_size: newPaseo.dog_size,
         package_id: packageId,
         package_index: walks > 1 ? i + 1 : null,
@@ -391,7 +395,7 @@ export function AdminPanel({
 
     setReservations((prev) => [...(data as AdminReservation[]), ...prev])
     setNewPaseo({
-      user_id: "", manual_client_name: "", manual_client_phone: "", walker_id: "", plan_name: "Paseo de 1 día", dogs_count: 1, price_mxn: 250,
+      user_id: "", manual_client_name: "", manual_client_phone: "", walker_id: "", plan_name: "Paseo de 1 día", dogs_count: 1, price_mxn: 250, dog_breed: "",
       zone: "", pickup_address: "", dog_name: "", dog_size: "mediano", scheduled_at: "", notes: "",
     })
     setNewSlots([{ date: "", startHour: "09:00" }])
@@ -587,6 +591,18 @@ export function AdminPanel({
       return s
     })
   }
+
+  // Filtrados y agrupados: con el filtro en "todos" salen primero los dueños y
+  // luego los paseadores, en vez de revueltos por fecha de registro.
+  const usuariosVisibles = (filtroRol === "todos" ? users : users.filter((u) => u.role === filtroRol))
+    .slice()
+    .sort((a, b) => {
+      const orden = { dueno: 0, paseador: 1, admin: 2 } as Record<string, number>
+      const ra = orden[a.role] ?? 3
+      const rb = orden[b.role] ?? 3
+      if (ra !== rb) return ra - rb
+      return (a.full_name ?? "").localeCompare(b.full_name ?? "", "es")
+    })
 
   const marcarPagosMasivo = async (paid: boolean) => {
     const ids = Array.from(seleccionPago)
@@ -1516,16 +1532,35 @@ export function AdminPanel({
           <section className="mt-6 rounded-3xl border border-border bg-background p-6 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-display text-2xl font-extrabold tracking-tight">Usuarios</h2>
-              <div className="flex gap-2 text-sm">
-                <span className="flex items-center gap-1.5 rounded-full bg-accent/40 px-3 py-1 font-bold">
+              {/* Los contadores ahora filtran: picarle a "Dueños" deja solo dueños */}
+              <div className="flex flex-wrap gap-2 text-sm">
+                <button
+                  onClick={() => setFiltroRol(filtroRol === "dueno" ? "todos" : "dueno")}
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 font-bold transition ${
+                    filtroRol === "dueno" ? "bg-accent ring-2 ring-primary" : "bg-accent/40 hover:bg-accent/70"
+                  }`}
+                >
                   <Heart className="h-4 w-4" /> {users.filter((u) => u.role === "dueno").length} Dueños
-                </span>
-                <span className="flex items-center gap-1.5 rounded-full bg-primary/15 px-3 py-1 font-bold text-primary">
+                </button>
+                <button
+                  onClick={() => setFiltroRol(filtroRol === "paseador" ? "todos" : "paseador")}
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 font-bold text-primary transition ${
+                    filtroRol === "paseador" ? "bg-primary/30 ring-2 ring-primary" : "bg-primary/15 hover:bg-primary/25"
+                  }`}
+                >
                   <Footprints className="h-4 w-4" /> {users.filter((u) => u.role === "paseador").length} Paseadores
-                </span>
+                </button>
                 <span className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1 font-bold">
                   <ShieldCheck className="h-4 w-4" /> {users.filter((u) => u.role === "admin").length} Admins
                 </span>
+                {filtroRol !== "todos" && (
+                  <button
+                    onClick={() => setFiltroRol("todos")}
+                    className="rounded-full px-3 py-1 text-xs font-bold text-muted-foreground underline"
+                  >
+                    Ver todos
+                  </button>
+                )}
               </div>
             </div>
             <div className="mt-5 overflow-x-auto">
@@ -1542,12 +1577,12 @@ export function AdminPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {users.length === 0 ? (
+                  {usuariosVisibles.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-muted-foreground">Sin usuarios.</td>
+                      <td colSpan={7} className="py-8 text-center text-muted-foreground">Sin usuarios con ese filtro.</td>
                     </tr>
                   ) : (
-                    users.map((u) => (
+                    usuariosVisibles.map((u) => (
                       <tr key={u.id} className={`border-b border-border/50 ${u.banned ? "opacity-50" : ""}`}>
                         <td className="py-3 pr-4 font-semibold">{u.full_name ?? "—"}</td>
                         <td className="py-3 pr-4">
@@ -1965,6 +2000,14 @@ export function AdminPanel({
               <div>
                 <label className="text-sm font-semibold">Nombre del perro</label>
                 <Input value={newPaseo.dog_name} onChange={(e) => setNewPaseo({ ...newPaseo, dog_name: e.target.value })} placeholder="Toby" />
+              </div>
+              <div>
+                <label className="text-sm font-semibold">Raza</label>
+                <Input
+                  value={newPaseo.dog_breed}
+                  onChange={(e) => setNewPaseo({ ...newPaseo, dog_breed: e.target.value })}
+                  placeholder="Labrador, criollo, pitbull…"
+                />
               </div>
               <div>
                 <label className="text-sm font-semibold">Tamaño</label>

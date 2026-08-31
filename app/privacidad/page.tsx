@@ -3,6 +3,7 @@ import { LogoCircle } from "@/components/logo-circle"
 import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
 import { createClient } from "@/lib/supabase/server"
+import { AvisoPrivacidadContenido } from "@/components/aviso-privacidad"
 
 export const metadata = {
   title: "Aviso de privacidad · Perrones Cuu",
@@ -25,50 +26,7 @@ export default async function PrivacidadPage() {
           <p className="mt-2 text-sm text-muted-foreground">Última actualización: junio de 2026</p>
 
           <div className="prose prose-sm mt-8 max-w-none text-foreground/90">
-            <h2 className="mt-8 font-display text-xl font-extrabold">1. Responsable</h2>
-            <p>
-              Perrones Cuu ("la Plataforma"), con domicilio en Ciudad Chihuahua, Chih., México, es responsable del
-              tratamiento de tus datos personales conforme a este aviso.
-            </p>
-
-            <h2 className="mt-6 font-display text-xl font-extrabold">2. Qué datos recabamos</h2>
-            <p>De clientes (dueños) y paseadores: nombre, teléfono, correo, contraseña encriptada, zona, datos del
-              perro (nombre, raza, tamaño, necesidades especiales) y dirección de recogida. De paseadores también
-              horarios disponibles y datos bancarios para su compensación.
-            </p>
-            <p className="mt-3">De los clientes (dueños) recabamos además una <b>identificación oficial</b> (INE,
-              pasaporte o licencia) al momento del registro. Es un dato personal que tratamos con cuidado especial:
-              se guarda cifrado en un almacenamiento privado, <b>solo tiene acceso el equipo de Perrones Cuu</b>, los
-              paseadores nunca la ven, y no se comparte con terceros. Su finalidad es acreditar la identidad de quien
-              nos confía a su perro y respaldar la responsabilidad por daños prevista en el contrato del cliente.
-              Se elimina cuando la cuenta se da de baja.
-            </p>
-
-            <h2 className="mt-6 font-display text-xl font-extrabold">3. Para qué los usamos</h2>
-            <p>Para coordinar y operar el servicio de paseo: enlazar al cliente con un paseador, agendar, enviar
-              notificaciones del paseo, facturación y soporte. No los compartimos con terceros sin tu consentimiento.
-            </p>
-
-            <h2 className="mt-6 font-display text-xl font-extrabold">4. Confidencialidad de la cartera</h2>
-            <p>Los datos de los clientes son propiedad exclusiva de la Plataforma. Los paseadores no podrán contactar,
-              ofrecer servicios o aceptar pagos directos de clientes conocidos a través de Perrones Cuu, ya sea durante
-              o después de la relación. Esto incluye el período en que el paseador deje de operar con la Plataforma.
-            </p>
-
-            <h2 className="mt-6 font-display text-xl font-extrabold">5. Seguro y cobertura</h2>
-            <p>La cobertura de seguro para mascotas únicamente aplica cuando el paseo se gestiona dentro de Perrones
-              Cuu. Cualquier servicio fuera de la Plataforma queda sin protección.
-            </p>
-
-            <h2 className="mt-6 font-display text-xl font-extrabold">6. Tus derechos (ARCO)</h2>
-            <p>Puedes acceder, rectificar, cancelar u oponerte al tratamiento de tus datos personales escribiendo a
-              hola@perronescuu.com o por WhatsApp al +52 614 594 8513.
-            </p>
-
-            <h2 className="mt-6 font-display text-xl font-extrabold">7. Cambios al aviso</h2>
-            <p>Cualquier cambio sustancial será notificado dentro de la Plataforma. La versión vigente siempre estará
-              disponible en esta página.
-            </p>
+            <AvisoPrivacidadContenido />
           </div>
 
           <Link
