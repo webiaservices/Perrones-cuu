@@ -904,6 +904,22 @@ export function AdminPanel({
   }, [reservations, weekStart])
 
   // Mapa: package_id → todas las fechas de ese paquete (ordenadas)
+  /**
+   * ¿Esta vacante ya venció? MISMA regla que el panel del paseador (última
+   * fecha del paquete + 1h de tolerancia). Si el admin la ve distinta a como
+   * la ve el paseador, pasa lo que pasó: Endy veía "varias vacantes públicas"
+   * y el paseador cero — porque todas eran de fechas ya pasadas.
+   */
+  const vencioVacante = (r: AdminReservation) => {
+    if (r.status !== "buscando_paseador" || r.walker_id) return false
+    const cutoff = Date.now() - 60 * 60 * 1000
+    if (r.package_id && packageDates[r.package_id]?.length) {
+      const arr = packageDates[r.package_id]
+      return arr[arr.length - 1].getTime() < cutoff
+    }
+    return r.scheduled_at ? new Date(r.scheduled_at).getTime() < cutoff : false
+  }
+
   const packageDates = useMemo(() => {
     const m: Record<string, Date[]> = {}
     reservations.forEach((r) => {
@@ -1690,7 +1706,14 @@ export function AdminPanel({
                         <td className="py-3 pr-4">
                           {/* Toggle público⇄privado — se puede cambiar cuando quieras
                               mientras el paseo siga sin paseador asignado */}
-                          {!r.walker_id && (r.status === "buscando_paseador" || r.visibility === "pending_admin") ? (
+                          {vencioVacante(r) ? (
+                            <span
+                              title="Las fechas de este paseo ya pasaron: el paseador NO lo ve aunque esté público. Reagéndalo o cancélalo."
+                              className="whitespace-nowrap rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-800"
+                            >
+                              ⏰ Venció
+                            </span>
+                          ) : !r.walker_id && (r.status === "buscando_paseador" || r.visibility === "pending_admin") ? (
                             r.visibility === "public" ? (
                               <button
                                 onClick={() => setVisibility(r, "pending_admin")}
