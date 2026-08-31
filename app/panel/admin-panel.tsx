@@ -14,6 +14,7 @@ import {
   CalendarDays,
   Clock,
   DollarSign,
+  X,
   CheckCircle2,
   Users,
   Heart,
@@ -130,6 +131,13 @@ export type AdminUser = {
   zone: string | null
   banned?: boolean
   created_at: string
+  city?: string | null
+  bank_name?: string | null
+  bank_clabe?: string | null
+  bank_account?: string | null
+  birth_date?: string | null
+  wa_rebotes?: number | null
+  wa_ultimo_error?: string | null
 }
 
 type AdminReview = {
@@ -289,6 +297,8 @@ export function AdminPanel({
   // Buscador dentro del modal de asignar paseador (son muchos para scrollear)
   /** Filtro de la vista Usuarios: ver solo dueños, solo paseadores, o todos */
   const [filtroRol, setFiltroRol] = useState<"todos" | "dueno" | "paseador">("todos")
+  /** Ficha completa de una persona: banco, edad, identificación */
+  const [fichaDe, setFichaDe] = useState<AdminUser | null>(null)
   const [walkerSearch, setWalkerSearch] = useState("")
   const [assigning, setAssigning] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -1775,7 +1785,15 @@ export function AdminPanel({
                   ) : (
                     usuariosVisibles.map((u) => (
                       <tr key={u.id} className={`border-b border-border/50 ${u.banned ? "opacity-50" : ""}`}>
-                        <td className="py-3 pr-4 font-semibold">{u.full_name ?? "—"}</td>
+                        <td className="py-3 pr-4 font-semibold">
+                          <button
+                            onClick={() => setFichaDe(u)}
+                            className="text-left underline decoration-dotted underline-offset-2 hover:text-primary"
+                            title="Ver datos bancarios, edad e identificación"
+                          >
+                            {u.full_name ?? "—"}
+                          </button>
+                        </td>
                         <td className="py-3 pr-4">
                           <select
                             value={u.role}
@@ -2350,6 +2368,95 @@ export function AdminPanel({
           </div>
         )
       })()}
+
+      {/* Ficha de la persona: lo que Endy necesita para pagarle y para saber
+          con quién está tratando, sin salir de la tabla. */}
+      {fichaDe && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setFichaDe(null)}>
+          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-background p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-display text-xl font-extrabold">{fichaDe.full_name ?? "Sin nombre"}</h3>
+                <p className="text-sm text-muted-foreground">
+                  {fichaDe.role === "paseador" ? "Paseador" : fichaDe.role === "admin" ? "Admin" : "Dueño"}
+                  {fichaDe.city ? ` · ${fichaDe.city === "cdmx" ? "CDMX" : "Chihuahua"}` : ""}
+                  {fichaDe.zone ? ` · ${fichaDe.zone}` : ""}
+                </p>
+              </div>
+              <button onClick={() => setFichaDe(null)} className="rounded-full p-1 text-muted-foreground hover:bg-secondary">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3 text-sm">
+              <div className="rounded-2xl bg-secondary/40 p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Contacto</p>
+                <p className="mt-1">{fichaDe.phone ?? "Sin teléfono"}</p>
+                {fichaDe.email && <p className="break-all text-muted-foreground">{fichaDe.email}</p>}
+                {(fichaDe.wa_rebotes ?? 0) >= 2 && (
+                  <p className="mt-2 rounded-xl bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900">
+                    A este número no le llegan los WhatsApp ({fichaDe.wa_ultimo_error}). Hay que corregirlo con la persona.
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-2xl bg-secondary/40 p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Edad</p>
+                <p className="mt-1">
+                  {fichaDe.birth_date
+                    ? `${Math.floor((Date.now() - new Date(fichaDe.birth_date).getTime()) / (365.25 * 24 * 3600 * 1000))} años · nació el ${new Date(fichaDe.birth_date).toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Chihuahua" })}`
+                    : "No la capturó"}
+                </p>
+              </div>
+
+              {fichaDe.role === "paseador" && (
+                <div className="rounded-2xl bg-secondary/40 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Datos bancarios</p>
+                  {fichaDe.bank_name || fichaDe.bank_clabe || fichaDe.bank_account ? (
+                    <div className="mt-1 space-y-0.5">
+                      <p><b>Banco:</b> {fichaDe.bank_name ?? "—"}</p>
+                      <p><b>CLABE:</b> {fichaDe.bank_clabe ?? "—"}</p>
+                      <p><b>Cuenta:</b> {fichaDe.bank_account ?? "—"}</p>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-muted-foreground">No los capturó. Pídeselos antes de su primer pago.</p>
+                  )}
+                </div>
+              )}
+
+              <div className="rounded-2xl bg-secondary/40 p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Identificación</p>
+                {fichaDe.id_document_path ? (
+                  <Button
+                    onClick={() => verIdentificacion(fichaDe.id)}
+                    variant="outline"
+                    className="mt-2 rounded-full font-bold"
+                  >
+                    Ver identificación
+                  </Button>
+                ) : (
+                  <p className="mt-1 text-muted-foreground">No la subió.</p>
+                )}
+              </div>
+
+              {fichaDe.role === "paseador" && (
+                <div className="rounded-2xl bg-secondary/40 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Manual</p>
+                  <p className="mt-1">
+                    {fichaDe.manual_accepted_at
+                      ? `Aceptado el ${new Date(fichaDe.manual_accepted_at).toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Chihuahua" })}${fichaDe.manual_version ? ` · ${fichaDe.manual_version}` : ""}`
+                      : "Todavía no lo acepta — no puede tomar paseos."}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <Button variant="outline" onClick={() => setFichaDe(null)} className="mt-5 w-full rounded-full font-bold">
+              Cerrar
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Modal asignar paseador */}
       {assignFor && (

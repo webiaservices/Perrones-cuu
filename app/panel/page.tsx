@@ -54,7 +54,7 @@ export default async function PanelPage() {
   if (role === "admin") {
     const { data: allUsers } = await supabase
       .from("profiles")
-      .select("id, full_name, phone, email, id_document_path, role, zone, banned, created_at, manual_accepted_at, manual_version")
+      .select("id, full_name, phone, email, id_document_path, role, zone, city, banned, created_at, manual_accepted_at, manual_version, bank_name, bank_clabe, bank_account, birth_date, wa_rebotes, wa_ultimo_error")
       .order("created_at", { ascending: false })
     const { data: reviews } = await supabase
       .from("reviews")

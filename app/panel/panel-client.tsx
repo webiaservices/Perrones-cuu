@@ -5,8 +5,12 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, ArrowRight, LogOut, PawPrint, CalendarDays, Dog, MapPin, Clock, Check, X, Star } from "lucide-react"
+import { ArrowLeft, ArrowRight, LogOut, PawPrint, CalendarDays, Dog, MapPin, Clock, Check, X, Star, Navigation, ShieldCheck } from "lucide-react"
 import { ReviewModal } from "@/components/review-modal"
+import { ContractModal } from "@/components/contract-modal"
+import { PrivacidadModal } from "@/components/privacidad-modal"
+import { CLIENT_CONTRACT } from "@/lib/contract-text"
+import { BRAND } from "@/lib/constants"
 
 export type Reservation = {
   id: string
@@ -64,6 +68,11 @@ export function PanelClient({
   walkerNameMap?: Record<string, string>
 }) {
   const router = useRouter()
+  const [contratoAbierto, setContratoAbierto] = useState(false)
+  const [privacidadAbierta, setPrivacidadAbierta] = useState(false)
+  /** Cómo pedir el rastreo: viene incluido pero se activa a solicitud */
+  const [gpsAbierto, setGpsAbierto] = useState(false)
+
   const [reservations, setReservations] = useState(initial)
   const [updating, setUpdating] = useState<string | null>(null)
   const [reviewFor, setReviewFor] = useState<Reservation | null>(null)
@@ -226,6 +235,39 @@ export function PanelClient({
                   Mis perros
                 </Link>
               </Button>
+              {/* El GPS viene incluido, pero se activa cuando el cliente lo
+                  pide: por eso es un botón que explica cómo pedirlo, no un
+                  interruptor que lo prenda solo. */}
+              <Button variant="outline" onClick={() => setGpsAbierto(true)} className="rounded-full font-bold">
+                <Navigation className="h-4 w-4" />
+                Rastreo GPS
+              </Button>
+            </div>
+
+            {/* Que nadie pague en efectivo al paseador: es la regla que más se
+                les rompe y la que más caro les sale. */}
+            <div className="mb-4 flex items-start gap-3 rounded-2xl border border-[#d5ebe8] bg-white px-4 py-3">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#2ba89d]" />
+              <p className="text-sm leading-relaxed text-[#0d3333]">
+                El pago es <b>siempre por transferencia y directamente con nosotros</b>. Nunca en efectivo al
+                paseador. Si alguien le pide efectivo, avísenos al{" "}
+                <a href={BRAND.whatsappLink} target="_blank" rel="noopener noreferrer" className="font-bold underline">
+                  614 594 8513
+                </a>
+                .
+              </p>
+            </div>
+
+            {/* Contrato y aviso siempre a la mano, no solo cuando hay versión
+                nueva: el cliente tiene derecho a consultarlos cuando quiera. */}
+            <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#5a8080]">
+              <span>Tus documentos:</span>
+              <button onClick={() => setContratoAbierto(true)} className="font-semibold underline">
+                Contrato de prestación de servicios
+              </button>
+              <button onClick={() => setPrivacidadAbierta(true)} className="font-semibold underline">
+                Aviso de privacidad
+              </button>
             </div>
 
             {/* Botón GRANDE de reseña — sin necesidad de reservar, pensado para
@@ -509,6 +551,53 @@ export function PanelClient({
             router.refresh()
           }}
         />
+      )}
+
+      {/* Documentos siempre consultables */}
+      <ContractModal
+        open={contratoAbierto}
+        onOpenChange={setContratoAbierto}
+        title="Contrato de prestación de servicios"
+        text={CLIENT_CONTRACT}
+        onAccept={() => setContratoAbierto(false)}
+      />
+      <PrivacidadModal open={privacidadAbierta} onOpenChange={setPrivacidadAbierta} />
+
+      {/* Cómo pedir el rastreo por GPS */}
+      {gpsAbierto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setGpsAbierto(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-display text-xl font-extrabold text-[#0d3333]">Rastreo por GPS</h3>
+            <p className="mt-2 text-sm leading-relaxed text-[#5a8080]">
+              Viene <b>incluido en el servicio</b>, sin costo extra. Solo hay que pedirlo para que lo activemos:
+            </p>
+            <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-[#0d3333]">
+              <li>Escríbanos por WhatsApp diciéndonos que quiere GPS en su paseo.</li>
+              <li>Mándenos su correo electrónico en ese mismo mensaje.</li>
+              <li>
+                Cuando recojamos a su perrito le llega a su correo el enlace para ver el recorrido en vivo, con
+                fotos y aviso si hace sus necesidades.
+              </li>
+            </ol>
+            <p className="mt-3 text-xs text-[#5a8080]">No tiene que instalar nada.</p>
+            <div className="mt-5 flex flex-col gap-2">
+              <Button asChild className="rounded-full bg-[#3DCABD] font-bold text-white hover:bg-[#2ba89d]">
+                <a href={BRAND.whatsappLink} target="_blank" rel="noopener noreferrer">
+                  Pedirlo por WhatsApp
+                </a>
+              </Button>
+              <Button variant="outline" onClick={() => setGpsAbierto(false)} className="rounded-full font-bold">
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </main>
   )
