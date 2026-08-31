@@ -58,7 +58,10 @@ export function PanelClient({
   reservations: initial,
   ownerMap,
   walkerNameMap = {},
+  mostrarAvisoRutas = false,
 }: {
+  /** Lo prende y apaga Endy desde su panel */
+  mostrarAvisoRutas?: boolean
   role: string
   fullName: string | null
   email: string
@@ -243,6 +246,25 @@ export function PanelClient({
                 Rastreo GPS
               </Button>
             </div>
+
+            {/* Precio por ruta: se invita a preguntar, nunca se publica el
+                descuento. Endy lo prende y apaga desde su panel. */}
+            {mostrarAvisoRutas && (
+              <div className="mb-4 rounded-2xl border-2 border-[#3DCABD]/40 bg-[#3DCABD]/10 p-4">
+                <p className="font-display text-base font-extrabold text-[#0d3333]">
+                  ¿Sabía que puede pagar menos?
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-[#0d3333]">
+                  Si su domicilio queda cerca de otros que ya atendemos, podemos armar una ruta y ofrecerle un
+                  precio preferencial. Compártanos su ubicación por WhatsApp y le confirmamos si aplica.
+                </p>
+                <Button asChild className="mt-3 rounded-full bg-[#3DCABD] font-bold text-white hover:bg-[#2ba89d]">
+                  <a href={BRAND.whatsappLink} target="_blank" rel="noopener noreferrer">
+                    Mandar mi ubicación
+                  </a>
+                </Button>
+              </div>
+            )}
 
             {/* Que nadie pague en efectivo al paseador: es la regla que más se
                 les rompe y la que más caro les sale. */}

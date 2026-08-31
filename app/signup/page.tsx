@@ -50,6 +50,15 @@ function SignUpForm() {
   const [contractOpen, setContractOpen] = useState(false)
   /** El aviso se lee en ventana emergente para no sacar a nadie del registro a medias */
   const [privacyOpen, setPrivacyOpen] = useState(false)
+  /** Interruptores del panel: si el registro de paseadores está cerrado en esa
+   *  ciudad, en vez del formulario se ofrece la lista de espera. */
+  const [registroAbierto, setRegistroAbierto] = useState<Record<string, boolean>>({
+    chihuahua: true,
+    cdmx: true, // optimista: si no cargan los ajustes, no se bloquea a nadie
+  })
+  const [esperaEmail, setEsperaEmail] = useState("")
+  const [esperaEnviada, setEsperaEnviada] = useState(false)
+  const [esperaEnviando, setEsperaEnviando] = useState(false)
   const [bankName, setBankName] = useState("")
   const [bankClabe, setBankClabe] = useState("")
   const [birthDate, setBirthDate] = useState("")
@@ -69,6 +78,41 @@ function SignUpForm() {
 
   const toggleDay = (d: string) =>
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from("ajustes")
+      .select("clave, valor")
+      .then(({ data }) => {
+        if (!data) return
+        const mapa: Record<string, boolean> = { chihuahua: true, cdmx: true }
+        for (const a of data) {
+          if (a.clave === "registro_paseadores_chihuahua") mapa.chihuahua = a.valor === true
+          if (a.clave === "registro_paseadores_cdmx") mapa.cdmx = a.valor === true
+        }
+        setRegistroAbierto(mapa)
+      })
+  }, [])
+
+  const apuntarEnEspera = async () => {
+    setEsperaEnviando(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/lista-espera", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: esperaEmail, city, nombre: fullName || null, telefono: phone || null }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error ?? "No se pudo")
+      setEsperaEnviada(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo guardar")
+    } finally {
+      setEsperaEnviando(false)
+    }
+  }
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -261,8 +305,57 @@ function SignUpForm() {
             </div>
           )}
 
+          {/* Registro cerrado en esa ciudad: en vez de perder a la persona, se
+              le guarda el correo para avisarle cuando abran vacantes. */}
+          {role === "paseador" && !registroAbierto[city] && (
+            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 text-amber-900">
+              {esperaEnviada ? (
+                <>
+                  <p className="font-display text-lg font-extrabold">¡Listo, quedaste apuntado!</p>
+                  <p className="mt-1 text-sm">
+                    Te avisamos a <b>{esperaEmail}</b> en cuanto abramos vacantes en{" "}
+                    {CIUDADES.find((c) => c.id === city)?.corto}.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="font-display text-lg font-extrabold">
+                    Por ahora no estamos recibiendo paseadores en {CIUDADES.find((c) => c.id === city)?.corto}
+                  </p>
+                  <p className="mt-1 text-sm">
+                    Déjanos tu correo y te avisamos cuando abramos vacantes.
+                  </p>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      type="email"
+                      placeholder="tucorreo@ejemplo.com"
+                      value={esperaEmail}
+                      onChange={(e) => setEsperaEmail(e.target.value)}
+                      className="bg-white"
+                    />
+                    <Button
+                      type="button"
+                      onClick={apuntarEnEspera}
+                      disabled={esperaEnviando || !esperaEmail}
+                      className="rounded-full font-bold"
+                    >
+                      {esperaEnviando ? "Guardando…" : "Avísenme"}
+                    </Button>
+                  </div>
+                  <p className="mt-3 text-xs">
+                    ¿Tienes perrito? También puedes{" "}
+                    <button type="button" onClick={() => setRole("dueno")} className="font-bold underline">
+                      registrarte como dueño
+                    </button>{" "}
+                    y agendar paseos.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Paseador: zona + horarios */}
-          {role === "paseador" && (
+          {role === "paseador" && registroAbierto[city] && (
             <>
               <div className="flex flex-col gap-2">
                 <Label>Zona de preferencia</Label>
@@ -432,9 +525,11 @@ function SignUpForm() {
 
           {error && <p className="text-sm font-medium text-destructive">{error}</p>}
 
+          {!(role === "paseador" && !registroAbierto[city]) && (
           <Button type="submit" size="lg" className="w-full rounded-full font-bold" disabled={loading}>
             {loading ? "Creando cuenta..." : "Registrarme"}
           </Button>
+          )}
 
           <p className="text-center text-sm text-muted-foreground">
             ¿Ya tienes cuenta?{" "}

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { PanelClient, type Reservation } from "./panel-client"
+import { leerAjustes } from "@/lib/ajustes"
 import { AdminPanel, type AdminReservation } from "./admin-panel"
 import { WalkerPanel, type WalkerReservation } from "./walker-panel"
 
@@ -141,8 +142,11 @@ export default async function PanelPage() {
     }
   }
 
+  const ajustes = await leerAjustes()
+
   return (
     <PanelClient
+      mostrarAvisoRutas={ajustes.aviso_rutas_panel_cliente}
       role={role}
       fullName={profile?.full_name ?? null}
       email={user.email ?? ""}

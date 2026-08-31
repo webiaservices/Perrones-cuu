@@ -194,6 +194,9 @@ export function AdminPanel({
   const [tablaPagos, setTablaPagos] = useState<Record<string, Record<number, number>>>({})
   const [preciosCargando, setPreciosCargando] = useState(false)
   const [preciosMsg, setPreciosMsg] = useState<string | null>(null)
+  /** Interruptores del negocio y lista de espera de las ciudades cerradas */
+  const [ajustes, setAjustes] = useState<Record<string, boolean>>({})
+  const [espera, setEspera] = useState<{ email: string; city: string; nombre: string | null; created_at: string }[]>([])
   // Estado de la conexión de WhatsApp (se carga al abrir la pestaña)
   type WaStatus = {
     configurado: boolean
@@ -647,11 +650,29 @@ export function AdminPanel({
     }
     setTablaPrecios(armar(pr, "price_mxn"))
     setTablaPagos(armar(pg, "walker_mxn"))
+
+    const [{ data: aj }, { data: le }] = await Promise.all([
+      supabase.from("ajustes").select("clave, valor"),
+      supabase.from("lista_espera").select("email, city, nombre, created_at").order("created_at", { ascending: false }),
+    ])
+    setAjustes(Object.fromEntries((aj ?? []).map((a) => [a.clave as string, a.valor === true])))
+    setEspera((le ?? []) as typeof espera)
     setPreciosCargando(false)
   }
 
   /** Guarda la lista completa de esa ciudad. Los paseos ya agendados no se
    *  tocan: cada reserva congeló su precio al crearse. */
+  /** Prende o apaga un interruptor. Se guarda al momento, sin botón aparte. */
+  const cambiarAjuste = async (clave: string, valor: boolean) => {
+    setAjustes((a) => ({ ...a, [clave]: valor }))
+    const supabase = createClient()
+    const { error } = await supabase.from("ajustes").upsert({ clave, valor }, { onConflict: "clave" })
+    if (error) {
+      setAjustes((a) => ({ ...a, [clave]: !valor }))
+      setPreciosMsg(`No se pudo guardar el interruptor: ${error.message}`)
+    }
+  }
+
   const guardarPrecios = async () => {
     setPreciosCargando(true)
     setPreciosMsg(null)
@@ -1724,6 +1745,90 @@ export function AdminPanel({
                   </span>
                 )}
               </div>
+            </div>
+
+            {/* Interruptores del negocio */}
+            <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
+              <h3 className="font-display text-xl font-extrabold">Interruptores</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Se guardan solos al picarles. Afectan la página al instante.
+              </p>
+
+              <div className="mt-4 space-y-3">
+                {[
+                  {
+                    clave: "registro_paseadores_chihuahua",
+                    titulo: "Registro de paseadores · Chihuahua",
+                    ayuda: "Apagado, quien elija Chihuahua y 'Paseador' verá el aviso de lista de espera.",
+                  },
+                  {
+                    clave: "registro_paseadores_cdmx",
+                    titulo: "Registro de paseadores · Ciudad de México",
+                    ayuda: "Apagado, quien elija CDMX y 'Paseador' verá el aviso de lista de espera.",
+                  },
+                  {
+                    clave: "aviso_rutas_panel_cliente",
+                    titulo: "Aviso de precio por ruta en el panel del cliente",
+                    ayuda: "Muestra la tarjeta de \u201c¿Sabía que puede pagar menos?\u201d cuando entra un cliente.",
+                  },
+                ].map((it) => (
+                  <div key={it.clave} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-secondary/40 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold">{it.titulo}</p>
+                      <p className="text-xs text-muted-foreground">{it.ayuda}</p>
+                    </div>
+                    <button
+                      onClick={() => cambiarAjuste(it.clave, !ajustes[it.clave])}
+                      className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-bold transition ${
+                        ajustes[it.clave]
+                          ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                          : "bg-rose-100 text-rose-800 hover:bg-rose-200"
+                      }`}
+                    >
+                      {ajustes[it.clave] ? "Prendido" : "Apagado"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Lista de espera: quienes quisieron ser paseadores donde está cerrado */}
+            <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-display text-xl font-extrabold">Lista de espera de paseadores</h3>
+                <span className="rounded-full bg-secondary px-3 py-1 text-sm font-bold">{espera.length}</span>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Gente que quiso registrarse donde el registro está cerrado. Cuando abras vacantes, escríbeles.
+              </p>
+              {espera.length === 0 ? (
+                <p className="mt-4 text-sm text-muted-foreground">Todavía nadie se ha apuntado.</p>
+              ) : (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                        <th className="pb-2 pr-4">Correo</th>
+                        <th className="pb-2 pr-4">Ciudad</th>
+                        <th className="pb-2 pr-4">Nombre</th>
+                        <th className="whitespace-nowrap pb-2">Se apuntó</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {espera.map((e, i) => (
+                        <tr key={`${e.email}-${i}`} className="border-b border-border/50">
+                          <td className="break-all py-2 pr-4 font-semibold">{e.email}</td>
+                          <td className="py-2 pr-4">{e.city === "cdmx" ? "CDMX" : "Chihuahua"}</td>
+                          <td className="py-2 pr-4">{e.nombre ?? "—"}</td>
+                          <td className="whitespace-nowrap py-2 text-muted-foreground">
+                            {new Date(e.created_at).toLocaleDateString("es-MX", { day: "numeric", month: "short", timeZone: "America/Chihuahua" })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </section>
         )}
