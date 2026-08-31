@@ -300,3 +300,57 @@ insert into public.pagos_paseador (city, plan_name, dogs, walker_mxn) values
   ('cdmx',      'Paseo VIP',       2,  910),
   ('cdmx',      'Paseo VIP',       3, 1190)
 on conflict (city, plan_name, dogs) do nothing;
+
+-- ---------- 12. Contrato editable desde el panel ----------
+-- Hoy el texto vive en lib/contract-text.ts y cambiarlo exige desplegar.
+-- Aquí se guarda cada versión como un renglón nuevo: la vigente es la última.
+-- NUNCA se reescribe una versión publicada, porque quien aceptó la v2 aceptó
+-- ESE texto y eso es lo que respalda legalmente.
+create table if not exists public.documentos (
+  id uuid primary key default gen_random_uuid(),
+  tipo text not null check (tipo in ('cliente', 'paseador')),
+  version text not null,
+  texto text not null,
+  vigente boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (tipo, version)
+);
+
+alter table public.documentos enable row level security;
+
+drop policy if exists documentos_lectura_publica on public.documentos;
+create policy documentos_lectura_publica on public.documentos for select using (true);
+
+drop policy if exists documentos_solo_admin_escribe on public.documentos;
+create policy documentos_solo_admin_escribe on public.documentos for all
+  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'))
+  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+
+-- Solo un vigente por tipo: al publicar una versión, las demás se apagan.
+create or replace function public.solo_un_documento_vigente()
+returns trigger as $$
+begin
+  if new.vigente then
+    update public.documentos
+       set vigente = false
+     where tipo = new.tipo and id <> new.id and vigente;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+drop trigger if exists documentos_vigente_trg on public.documentos;
+create trigger documentos_vigente_trg
+  after insert or update of vigente on public.documentos
+  for each row execute function public.solo_un_documento_vigente();
+
+-- ---------- 13. Orden manual de los paseos ----------
+-- Endy quiere reordenarlos de arriba a abajo. NULL = se ordena por fecha,
+-- como hoy; con número, ese manda.
+alter table public.reservations
+  add column if not exists orden int;
+
+-- ---------- 14. Re-aceptación del contrato ----------
+-- Para pedirle a un cliente que vuelva a firmar cuando sube la versión.
+alter table public.profiles
+  add column if not exists contrato_reaceptacion_pedida_at timestamptz;
