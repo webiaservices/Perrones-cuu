@@ -191,16 +191,27 @@ export async function sendWhatsAppTemplate(
       }
     }
     // Twilio numera las variables desde "1"
+    // WhatsApp rechaza con 21656 ("ContentVariables no válidas") cuando una
+    // variable llega VACÍA. Pasaba de verdad: al paseador sin nombre completo
+    // se le mandaba "" y su recordatorio nunca salía. Un guion no rompe nada;
+    // un mensaje que no llega, sí.
     const twVars: Record<string, string> = {}
-    vars.forEach((v, i) => { twVars[String(i + 1)] = String(v) })
+    vars.forEach((v, i) => {
+      const valor = String(v ?? "").trim()
+      twVars[String(i + 1)] = valor === "" ? "—" : valor
+    })
 
     try {
       const body = new URLSearchParams({
         To: `whatsapp:+${cleaned}`,
         From: con.from!,
         ContentSid: contentSid,
-        ContentVariables: JSON.stringify(twVars),
       })
+      // Una plantilla SIN variables (solicitud_resena) no debe recibir el
+      // parámetro: mandar "{}" también da 21656.
+      if (Object.keys(twVars).length > 0) {
+        body.set("ContentVariables", JSON.stringify(twVars))
+      }
       const aviso = urlAvisoDeEntrega()
       if (aviso) body.set("StatusCallback", aviso)
       const res = await fetch(con.urlMensajes, { method: "POST", headers: con.headers, body })
