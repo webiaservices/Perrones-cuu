@@ -24,6 +24,8 @@ export type Dog = {
   behavior: string | null
   illness: string | null
   long_distance: boolean | null
+  has_bitten: boolean | null
+  aggression_details: string | null
   created_at: string
 }
 
@@ -38,6 +40,8 @@ const EMPTY_DRAFT = {
   behavior: "",
   illness: "",
   long_distance: false,
+  has_bitten: null as boolean | null,
+  aggression_details: "",
 }
 
 export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId: string }) {
@@ -66,6 +70,8 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
       behavior: d.behavior ?? "",
       illness: d.illness ?? "",
       long_distance: !!d.long_distance,
+      has_bitten: d.has_bitten ?? null,
+      aggression_details: d.aggression_details ?? "",
     })
     setError(null)
   }
@@ -79,6 +85,17 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
   const save = async () => {
     setError(null)
     if (!draft.name.trim()) return setError("Pon al menos el nombre del perro.")
+    // Endy pidió las dos como obligatorias: la raza para saber a quién asignar,
+    // y lo de morder porque es seguridad del paseador.
+    if (!draft.breed.trim()) {
+      setError("Pon la raza de tu perrito. Si es criollo o mestizo, escríbelo así.")
+      return
+    }
+    if (draft.has_bitten === null) {
+      setError("Contesta si tu perrito ha mordido o mostrado conductas agresivas.")
+      return
+    }
+
     setSaving(true)
     const supabase = createClient()
     const payload = {
@@ -92,6 +109,8 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
       behavior: draft.behavior.trim() || null,
       illness: draft.illness.trim() || null,
       long_distance: draft.long_distance,
+      has_bitten: draft.has_bitten,
+      aggression_details: draft.has_bitten ? draft.aggression_details.trim() || null : null,
     }
     if (editingId === "new") {
       const { data, error: err } = await supabase.from("dogs").insert(payload).select().single()
@@ -157,7 +176,7 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
                   <Input id="name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Toby" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="breed">Raza</Label>
+                  <Label htmlFor="breed">Raza *</Label>
                   <Input id="breed" value={draft.breed} onChange={(e) => setDraft({ ...draft, breed: e.target.value })} placeholder="Golden Retriever" />
                 </div>
                 <div className="space-y-2">
@@ -186,6 +205,40 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
                   <Textarea id="behavior" value={draft.behavior} onChange={(e) => setDraft({ ...draft, behavior: e.target.value })} placeholder="Es muy juguetón, sociable, le ladra a las bicis…" />
                 </div>
                 <div className="space-y-2 md:col-span-2">
+                  <Label>¿Ha mordido o mostrado conductas agresivas? *</Label>
+                  <p className="-mt-1 text-xs text-muted-foreground">
+                    Con otros perros o con personas. Contestar que sí no impide el paseo: nos sirve para asignar al
+                    paseador con más experiencia y para que sepa cómo tratarlo.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDraft({ ...draft, has_bitten: false })}
+                      className={`rounded-full px-4 py-1.5 text-sm font-bold transition ${
+                        draft.has_bitten === false ? "bg-primary text-primary-foreground" : "bg-secondary"
+                      }`}
+                    >
+                      No
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDraft({ ...draft, has_bitten: true })}
+                      className={`rounded-full px-4 py-1.5 text-sm font-bold transition ${
+                        draft.has_bitten === true ? "bg-primary text-primary-foreground" : "bg-secondary"
+                      }`}
+                    >
+                      Sí
+                    </button>
+                  </div>
+                  {draft.has_bitten === true && (
+                    <Textarea
+                      value={draft.aggression_details}
+                      onChange={(e) => setDraft({ ...draft, aggression_details: e.target.value })}
+                      placeholder="¿Qué pasó, con quién y en qué situación? Entre más nos cuentes, mejor lo cuidamos."
+                    />
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
                   <Label htmlFor="illness">Enfermedades o condiciones</Label>
                   <Textarea id="illness" value={draft.illness} onChange={(e) => setDraft({ ...draft, illness: e.target.value })} placeholder="Displasia leve, alergia a ciertos pastos, etc." />
                 </div>

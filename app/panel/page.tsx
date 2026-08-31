@@ -27,7 +27,7 @@ export default async function PanelPage() {
   const { data: reservations } = await supabase
     .from("reservations")
     .select(
-      "id, plan_name, dogs_count, price_mxn, status, notes, created_at, user_id, scheduled_at, scheduled_until, zone, pickup_address, dog_name, dog_size, walker_id, visibility, payment_status, package_id, package_index, package_total, manual_client_name, manual_client_phone, admin_fee_mxn, dog_breed, recurrencia",
+      "id, plan_name, dogs_count, price_mxn, status, notes, created_at, user_id, scheduled_at, scheduled_until, zone, pickup_address, dog_name, dog_size, walker_id, visibility, payment_status, package_id, package_index, package_total, manual_client_name, manual_client_phone, admin_fee_mxn, dog_breed, recurrencia, dog_id",
     )
     .order("created_at", { ascending: false })
 
@@ -89,6 +89,27 @@ export default async function PanelPage() {
 
   // Paseador obtiene su propia vista (con ganancias, tabs, editor perfil)
   if (role === "paseador") {
+    // Antecedentes de conducta del perro: es seguridad del paseador y tiene
+    // que verlo ANTES de aceptar, no cuando ya está en la puerta.
+    const dogIds = Array.from(
+      new Set((reservations ?? []).map((r) => (r as { dog_id?: string | null }).dog_id).filter(Boolean) as string[]),
+    )
+    let dogMap: Record<string, { has_bitten: boolean | null; aggression_details: string | null }> = {}
+    if (dogIds.length > 0) {
+      const { data: perros } = await supabase
+        .from("dogs")
+        .select("id, has_bitten, aggression_details")
+        .in("id", dogIds)
+      dogMap = Object.fromEntries(
+        (perros ?? []).map((d) => [
+          d.id as string,
+          {
+            has_bitten: (d.has_bitten as boolean | null) ?? null,
+            aggression_details: (d.aggression_details as string | null) ?? null,
+          },
+        ]),
+      )
+    }
     const { data: walkerProfile } = await supabase
       .from("profiles")
       .select("zone, available_hours, manual_accepted_at, manual_version")
@@ -103,6 +124,7 @@ export default async function PanelPage() {
         ownerMap={ownerMap}
         initialZone={walkerProfile?.zone ?? null}
         initialAvailableHours={(walkerProfile?.available_hours ?? {}) as Record<string, boolean>}
+        dogMap={dogMap}
         manualAceptadoEn={(walkerProfile?.manual_accepted_at as string | null) ?? null}
         manualVersionAceptada={(walkerProfile?.manual_version as string | null) ?? null}
       />

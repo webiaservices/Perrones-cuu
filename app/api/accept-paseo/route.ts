@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { MANUAL_VERSION } from "@/lib/manual-paseadores"
 
 /**
  * Endpoint server-side para que el paseador acepte un paseo.
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient()
     const { data: profile } = await admin
       .from("profiles")
-      .select("role, banned")
+      .select("role, banned, manual_accepted_at, manual_version")
       .eq("id", user.id)
       .single()
 
@@ -27,6 +28,21 @@ export async function POST(req: NextRequest) {
     if (profile.banned) return NextResponse.json({ error: "Tu cuenta está suspendida. Contacta al admin." }, { status: 403 })
     if (profile.role !== "paseador") {
       return NextResponse.json({ error: `Tu cuenta es de tipo "${profile.role}". Solo paseadores pueden aceptar paseos.` }, { status: 403 })
+    }
+
+    // El manual se lee ANTES de aceptar, y se valida aquí y no solo en la
+    // pantalla: una alerta que se puede cerrar no es una regla. Si la versión
+    // del manual cambió, hay que volver a aceptarlo.
+    const aceptoElManual =
+      !!profile.manual_accepted_at && profile.manual_version === MANUAL_VERSION
+    if (!aceptoElManual) {
+      return NextResponse.json(
+        {
+          error: "Antes de aceptar tu primer paseo tienes que leer y aceptar el manual del paseador.",
+          faltaManual: true,
+        },
+        { status: 403 },
+      )
     }
 
     // Lee el paseo

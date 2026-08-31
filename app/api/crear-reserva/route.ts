@@ -127,6 +127,37 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Un paquete es de UNA semana: 5 paseos son 5 días de la misma semana, no
+    // uno por semana durante cinco semanas. Antes solo se advertía con un
+    // texto, y el texto no impide nada — este conflicto ya se les dio.
+    if (ordered.length > 1) {
+      const primero = new Date(`${ordered[0].date}T${ordered[0].startHour}:00-06:00`).getTime()
+      const ultimo = new Date(`${ordered[ordered.length - 1].date}T${ordered[ordered.length - 1].startHour}:00-06:00`).getTime()
+      const DIAS = 7 * 24 * 60 * 60 * 1000
+      if (ultimo - primero > DIAS) {
+        return NextResponse.json(
+          {
+            error:
+              `Los ${ordered.length} paseos de este paquete tienen que caber en una misma semana. ` +
+              `Elige fechas dentro de 7 días a partir del primero, o agenda otro paquete aparte.`,
+          },
+          { status: 400 },
+        )
+      }
+      // Tampoco dos paseos del mismo paquete el mismo día y hora
+      const vistos = new Set<string>()
+      for (const s of ordered) {
+        const clave = `${s.date} ${s.startHour}`
+        if (vistos.has(clave)) {
+          return NextResponse.json(
+            { error: `Repetiste ${s.date} a las ${s.startHour}. Cada paseo del paquete va en un horario distinto.` },
+            { status: 400 },
+          )
+        }
+        vistos.add(clave)
+      }
+    }
+
     const packageId = walksCount > 1 ? crypto.randomUUID() : null
     const rows = ordered.map((slot, i) => {
       const at = new Date(`${slot.date}T${slot.startHour}:00-06:00`)

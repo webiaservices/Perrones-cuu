@@ -82,7 +82,7 @@ function SignUpForm() {
       setError("Selecciona tu zona de preferencia.")
       return
     }
-    if (role === "dueno") {
+    if (role === "dueno" || role === "paseador") {
       if (!idFile) {
         setError("Sube una foto de tu identificación oficial (INE, pasaporte o licencia).")
         return
@@ -126,7 +126,7 @@ function SignUpForm() {
       // correo está activada todavía no hay sesión y Storage rechazaría al
       // navegador. Si esto falla, el registro NO se cae — el admin puede
       // pedírsela después desde el panel.
-      if (role === "dueno" && idFile && data.user?.id) {
+      if ((role === "dueno" || role === "paseador") && idFile && data.user?.id) {
         try {
           const fd = new FormData()
           fd.append("userId", data.user.id)
@@ -349,14 +349,15 @@ function SignUpForm() {
           )}
 
           {/* Identificación oficial — solo dueños (punto 7 del contrato) */}
-          {role === "dueno" && (
+          {(role === "dueno" || role === "paseador") && (
             <div className="flex flex-col gap-2 rounded-2xl bg-muted/50 p-3">
               <Label htmlFor="idFile">Identificación oficial</Label>
               <p className="text-xs text-muted-foreground">
                 Foto de tu INE, pasaporte o licencia. Con ella dejamos constancia de quién leyó y aceptó el
-                contrato de servicios, y de quién responde si alguna de las partes no lo cumple —{" "}
+                {role === "paseador" ? " manual y el contrato" : " contrato de servicios"}, y de quién responde si
+                alguna de las partes no lo cumple —{" "}
                 <b className="text-foreground">por eso vale la pena leerlo con calma antes de aceptar</b>.
-                Es privada: solo la ve Perrones Cuu, nunca los paseadores.{" "}
+                Es privada: solo la ve el equipo de Perrones Cuu, nadie más.{" "}
                 <button
                   type="button"
                   className="font-semibold text-primary underline"

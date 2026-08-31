@@ -9,7 +9,7 @@ export default async function MisPerrosPage() {
 
   const { data: dogs } = await supabase
     .from("dogs")
-    .select("id, name, breed, age, size, notes, special_needs, behavior, illness, long_distance, created_at")
+    .select("id, name, breed, age, size, notes, special_needs, behavior, illness, long_distance, has_bitten, aggression_details, created_at")
     .eq("owner_id", user.id)
     .order("created_at", { ascending: false })
 

@@ -56,8 +56,10 @@ export async function POST(req: NextRequest) {
     if (perfilErr || !perfil) {
       return NextResponse.json({ error: "La cuenta no existe. Recarga la página." }, { status: 404 })
     }
-    if (perfil.role !== "dueno") {
-      return NextResponse.json({ error: "Solo los dueños suben identificación." }, { status: 403 })
+    // Endy la pide a los dos: del dueño respalda quién confía el perro, del
+    // paseador respalda quién leyó y aceptó el manual.
+    if (perfil.role !== "dueno" && perfil.role !== "paseador") {
+      return NextResponse.json({ error: "Ese tipo de cuenta no sube identificación." }, { status: 403 })
     }
     if (perfil.id_document_path) {
       // Ya tiene una. No se pisa desde aquí.

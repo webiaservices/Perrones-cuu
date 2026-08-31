@@ -49,6 +49,7 @@ export type WalkerReservation = {
   dog_name: string | null
   dog_size: string | null
   dog_breed: string | null
+  dog_id: string | null
   walker_id: string | null
   package_id?: string | null
   package_index?: number | null
@@ -95,6 +96,7 @@ export function WalkerPanel({
   ownerMap,
   initialZone,
   initialAvailableHours,
+  dogMap,
   manualAceptadoEn,
   manualVersionAceptada,
 }: {
@@ -105,6 +107,7 @@ export function WalkerPanel({
   ownerMap: Record<string, { name: string | null; phone: string | null }>
   initialZone: string | null
   initialAvailableHours: Record<string, boolean>
+  dogMap?: Record<string, { has_bitten: boolean | null; aggression_details: string | null }>
   manualAceptadoEn: string | null
   manualVersionAceptada: string | null
 }) {
@@ -493,6 +496,29 @@ export function WalkerPanel({
           </button>
         </div>
 
+        {/* Sin el manual aceptado no se puede tomar ningún paseo — y el
+            servidor lo valida, así que esto no es solo un letrero. Va arriba
+            de todo porque escondido en la pestaña nadie lo abría. */}
+        {!aceptadoEn && (
+          <div className="mt-5 rounded-3xl border-2 border-destructive/40 bg-destructive/5 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+                <div>
+                  <p className="font-display text-lg font-extrabold">Lee el manual antes de tomar un paseo</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Son unos minutos. Mientras no lo aceptes no vas a poder aceptar paseos: es lo que deja
+                    constancia de que conoces las reglas.
+                  </p>
+                </div>
+              </div>
+              <Button onClick={() => setView("manual")} className="rounded-full font-bold">
+                Leerlo ahora
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Tabs (solo en vista lista) */}
         {view === "lista" && (
         <div className="mb-5 flex flex-wrap gap-2">
@@ -838,6 +864,7 @@ export function WalkerPanel({
         <ReservationDetailModal
           reservation={selectedReservation}
           ownerName={ownerMap[selectedReservation.user_id]?.name ?? null}
+          conducta={selectedReservation.dog_id ? dogMap?.[selectedReservation.dog_id] : undefined}
           isMine={selectedReservation.walker_id === userId}
           isAvailable={!selectedReservation.walker_id && selectedReservation.status === "buscando_paseador"}
           onClose={() => setSelectedReservation(null)}
@@ -997,10 +1024,12 @@ function FragmentRow({
 }
 
 function ReservationDetailModal({
-  reservation, ownerName, isMine, isAvailable, onClose, onAccept, onUpdateStatus, updating, ganancia,
+  reservation, ownerName, isMine, isAvailable, onClose, onAccept, onUpdateStatus, updating, ganancia, conducta,
 }: {
   reservation: WalkerReservation
   ownerName: string | null
+  /** Antecedentes del perro: se ve ANTES de aceptar, es seguridad del paseador */
+  conducta?: { has_bitten: boolean | null; aggression_details: string | null }
   isMine: boolean
   isAvailable: boolean
   onClose: () => void
@@ -1022,6 +1051,13 @@ function ReservationDetailModal({
 
         <div className="mt-4 space-y-2 text-sm">
           {reservation.dog_breed && <p><b>Raza:</b> {reservation.dog_breed}</p>}
+          {conducta?.has_bitten === true && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+              <p className="font-bold">⚠️ Este perrito ha mordido o mostrado conductas agresivas</p>
+              {conducta.aggression_details && <p className="mt-1 text-xs">{conducta.aggression_details}</p>}
+              <p className="mt-1 text-xs">No lo tomes a la ligera: llévalo con correa corta y sin acercarlo a otros perros.</p>
+            </div>
+          )}
           {reservation.dog_size && <p><b>Tamaño:</b> {reservation.dog_size}{reservation.dogs_count > 1 && ` · ${reservation.dogs_count} perros`}</p>}
           {reservation.scheduled_at && (
             <p>

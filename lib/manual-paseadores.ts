@@ -129,4 +129,30 @@ export const MANUAL_SECCIONES: ManualSeccion[] = [
       "Si por una emergencia no puedes realizar el paseo, avisa inmediatamente al dueño y al coordinador para ver si se puede mover el paseo a otro día y reponerlo.",
     ],
   },
+  {
+    titulo: "8. Qué hacer si te pedimos GPS",
+    puntos: [
+      "El rastreo viene incluido en el servicio, pero solo se activa cuando el cliente lo pide. Si ese paseo lleva GPS, nosotros te avisamos antes por WhatsApp. Si no te avisamos, no tienes que abrir nada.",
+    ],
+    subsecciones: [
+      {
+        titulo: "8.1 Cómo se usa, paso a paso",
+        puntos: [
+          "1. Instala la app DOGGY LOGS. NO te registres: por WhatsApp te damos un correo y una contraseña.",
+          "2. Entra al apartado de Mascotas.",
+          "3. Ahí te aparecen los perritos. Pícale al que tengas asignado.",
+          "4. Te salen varias opciones. Dale a INICIAR PASEO.",
+        ],
+      },
+      {
+        titulo: "8.2 El error más común",
+        puntos: [
+          "Mucha gente le pica a RECOGER. Esa NO es. Siempre Iniciar paseo: si le picas a la otra, el recorrido no se registra y el cliente no puede ver nada.",
+          "La app va prendida desde que recoges hasta que entregas.",
+          "Necesitas datos móviles todo el paseo, no solo para redes sociales: datos para todo.",
+          "Cualquier duda, comunícate al WhatsApp.",
+        ],
+      },
+    ],
+  },
 ]
