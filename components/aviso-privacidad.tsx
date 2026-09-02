@@ -70,7 +70,7 @@ export function AvisoPrivacidadContenido({ compacto = false }: { compacto?: bool
       <h2 className={h}>7. Tus derechos (ARCO)</h2>
       <p>
         Puedes acceder, rectificar, cancelar u oponerte al tratamiento de tus datos personales escribiendo a
-        hola@perronescuu.com o por WhatsApp al +52 614 594 8513.
+        perronescuu@gmail.com o por WhatsApp al +52 614 594 8513.
       </p>
 
       <h2 className={h}>8. Cambios al aviso</h2>
