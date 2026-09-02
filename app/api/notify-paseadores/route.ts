@@ -149,8 +149,23 @@ export async function POST(req: NextRequest) {
     // le insistía a números sin WhatsApp. Meta no distingue eso de un spammer.
     // Ahora se saltan los números que ya rebotaron dos veces; el admin los ve
     // marcados en su panel y los corrige con el paseador.
-    const conWhatsApp = activos.filter((p) => p.phone && (p.wa_rebotes ?? 0) < 2)
-    const saltados = activos.filter((p) => p.phone).length - conWhatsApp.length
+    const candidatos = activos.filter((p) => p.phone && (p.wa_rebotes ?? 0) < 2)
+
+    // UN mensaje por TELÉFONO, no por cuenta. Hay personas con dos cuentas de
+    // paseador y el mismo número (hermanos que compartieron teléfono, altas
+    // repetidas), y les llegaba el aviso dos veces: molesto para ellos y se
+    // paga doble. Se comparan los últimos 10 dígitos porque en la base hay
+    // números guardados con +52, con 52, con 521 y pelones.
+    const soloDigitos = (t: string) => t.replace(/\D/g, "").slice(-10)
+    const vistos = new Set<string>()
+    const conWhatsApp = candidatos.filter((p) => {
+      const clave = soloDigitos(p.phone!)
+      if (!clave || vistos.has(clave)) return false
+      vistos.add(clave)
+      return true
+    })
+    const duplicadosEvitados = candidatos.length - conWhatsApp.length
+    const saltados = activos.filter((p) => p.phone).length - candidatos.length
 
     const waResults = await Promise.allSettled(
       conWhatsApp
@@ -175,6 +190,8 @@ export async function POST(req: NextRequest) {
       whatsapp: waSent,
       // Si esto crece, hay números que corregir: se ven en el panel
       whatsappSaltados: saltados,
+      // Cuentas distintas que comparten teléfono: se les mandó una sola vez
+      whatsappDuplicadosEvitados: duplicadosEvitados,
     })
   } catch (e: unknown) {
     console.error("notify-paseadores error:", e)

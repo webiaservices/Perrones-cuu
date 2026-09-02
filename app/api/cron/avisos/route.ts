@@ -67,6 +67,18 @@ export async function GET(req: NextRequest) {
   const admin = createAdminClient()
   const ahora = new Date()
 
+  // Red de seguridad contra el mensaje doble: hay personas con dos cuentas y
+  // el mismo teléfono, así que "una vez por usuario" no basta — tiene que ser
+  // una vez por NÚMERO. Se comparan los últimos 10 dígitos porque en la base
+  // los teléfonos están guardados de varias formas.
+  const yaEnviado = new Set<string>()
+  const esRepetido = (plantilla: string, tel: string) => {
+    const clave = `${plantilla}|${tel.replace(/\D/g, "").slice(-10)}`
+    if (yaEnviado.has(clave)) return true
+    yaEnviado.add(clave)
+    return false
+  }
+
   const resumen: Record<string, Resultado> = {
     paseo_sin_cubrir: { enviados: 0, errores: [] },
     recordatorio_paseador: { enviados: 0, errores: [] },
@@ -108,6 +120,7 @@ export async function GET(req: NextRequest) {
 
       const tel = p.manual_client_phone ?? (await telefonoDe(admin, p.user_id))
       if (!tel) continue
+      if (esRepetido("paseo_sin_cubrir", tel)) continue
       const res = await sendWhatsAppTemplate("paseo_sin_cubrir", tel, [fmtHora(p.scheduled_at)])
       if ("ok" in res && res.ok) resumen.paseo_sin_cubrir.enviados++
       else {
@@ -158,6 +171,7 @@ export async function GET(req: NextRequest) {
       const { data: w } = await admin
         .from("profiles").select("full_name, phone").eq("id", p.walker_id).single()
       if (!w?.phone) continue
+      if (esRepetido("recordatorio_paseador", w.phone)) continue
       const res = await sendWhatsAppTemplate("recordatorio_paseador", w.phone, [
         w.full_name ?? "",
         fmtHora(p.scheduled_at),
@@ -247,6 +261,7 @@ export async function GET(req: NextRequest) {
       }
       if (falloMarca) continue
 
+      if (esRepetido("pago_vencido", tel)) continue
       const res = await sendWhatsAppTemplate("pago_vencido", tel, [
         `MX$${deuda.total}`,
         fmtFecha(deuda.masViejo),
@@ -309,6 +324,7 @@ export async function GET(req: NextRequest) {
 
       const tel = await telefonoDe(admin, p.user_id)
       if (!tel) continue
+      if (esRepetido("solicitud_resena", tel)) continue
       const res = await sendWhatsAppTemplate("solicitud_resena", tel, [])
       if ("ok" in res && res.ok) resumen.solicitud_resena.enviados++
       else {
