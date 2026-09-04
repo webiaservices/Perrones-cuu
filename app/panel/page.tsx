@@ -158,8 +158,19 @@ export default async function PanelPage() {
   const versionFirmada = firmas?.[0]?.version ?? null
   const debeRefirmar = versionFirmada !== contratoVigente.version
 
+  // La identificación se empezó a pedir DESPUÉS de que se registraran los
+  // primeros clientes: casi ninguno de los viejos la tiene. Se les pide aquí,
+  // que es donde sí entran, en vez de perseguirlos por WhatsApp.
+  const { data: miPerfil } = await supabase
+    .from("profiles")
+    .select("id_document_path")
+    .eq("id", user.id)
+    .maybeSingle()
+  const faltaIdentificacion = !miPerfil?.id_document_path
+
   return (
     <PanelClient
+      faltaIdentificacion={faltaIdentificacion}
       contrato={{
         version: contratoVigente.version,
         texto: contratoVigente.texto,

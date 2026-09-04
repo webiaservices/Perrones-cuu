@@ -2197,6 +2197,7 @@ export function AdminPanel({
                     <th className="pb-3 pr-4">Rol</th>
                     <th className="pb-3 pr-4">Teléfono</th>
                     <th className="pb-3 pr-4">Zona</th>
+                    <th className="whitespace-nowrap pb-3 pr-4">INE</th>
                     <th className="whitespace-nowrap pb-3 pr-4">Manual</th>
                     <th className="whitespace-nowrap pb-3 pr-4">Estado</th>
                     <th className="pb-3">Acciones</th>
@@ -2242,6 +2243,25 @@ export function AdminPanel({
                           {u.email && <div className="text-xs break-all">{u.email}</div>}
                         </td>
                         <td className="py-3 pr-4 text-muted-foreground">{u.zone ?? "—"}</td>
+                        <td className="py-3 pr-4">
+                          {/* Identificación: a los clientes viejos nunca se les pidió.
+                              Al entrar a su panel ahora les sale el aviso para subirla. */}
+                          {u.id_document_path ? (
+                            <button
+                              onClick={() => verIdentificacion(u.id)}
+                              className="whitespace-nowrap rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-200"
+                            >
+                              ✓ Ver
+                            </button>
+                          ) : (
+                            <span
+                              title="No la ha subido. Ya le sale el aviso cuando entra a su panel."
+                              className="whitespace-nowrap rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800"
+                            >
+                              Falta
+                            </span>
+                          )}
+                        </td>
                         <td className="py-3 pr-4">
                           {/* Constancia de lectura del manual: solo aplica a paseadores */}
                           {u.role !== "paseador" ? (

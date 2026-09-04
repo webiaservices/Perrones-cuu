@@ -60,7 +60,10 @@ export function PanelClient({
   walkerNameMap = {},
   mostrarAvisoRutas = false,
   contrato,
+  faltaIdentificacion = false,
 }: {
+  /** No subió identificación: se le pide desde el panel */
+  faltaIdentificacion?: boolean
   /** Lo prende y apaga Endy desde su panel */
   mostrarAvisoRutas?: boolean
   /** Contrato vigente y si a esta persona le falta firmarlo */
@@ -78,6 +81,33 @@ export function PanelClient({
   const [privacidadAbierta, setPrivacidadAbierta] = useState(false)
   /** Cómo pedir el rastreo: viene incluido pero se activa a solicitud */
   const [gpsAbierto, setGpsAbierto] = useState(false)
+  const [ineArchivo, setIneArchivo] = useState<File | null>(null)
+  const [ineSubiendo, setIneSubiendo] = useState(false)
+  const [ineMsg, setIneMsg] = useState<string | null>(null)
+
+  const subirIdentificacion = async () => {
+    if (!ineArchivo) return
+    if (ineArchivo.size > 5 * 1024 * 1024) {
+      setIneMsg("La foto pesa más de 5 MB. Toma una más ligera.")
+      return
+    }
+    setIneSubiendo(true)
+    setIneMsg(null)
+    try {
+      const fd = new FormData()
+      fd.append("userId", userId)
+      fd.append("file", ineArchivo)
+      const res = await fetch("/api/subir-identificacion", { method: "POST", body: fd })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error ?? "No se pudo subir")
+      setIneMsg("¡Listo! Ya quedó guardada.")
+      router.refresh()
+    } catch (e) {
+      setIneMsg(e instanceof Error ? e.message : "No se pudo subir")
+    } finally {
+      setIneSubiendo(false)
+    }
+  }
 
   const [reservations, setReservations] = useState(initial)
   const [updating, setUpdating] = useState<string | null>(null)
@@ -270,6 +300,42 @@ export function PanelClient({
                 >
                   Leerlo y aceptarlo
                 </Button>
+              </div>
+            )}
+
+            {/* Identificación pendiente. A los clientes de antes nunca se les
+                pidió, y es lo que respalda la responsabilidad por daños del
+                contrato. Se pide aquí, que es donde sí entran. */}
+            {faltaIdentificacion && (
+              <div className="mb-4 rounded-2xl border-2 border-[#3DCABD] bg-white p-5">
+                <p className="font-display text-lg font-extrabold text-[#0d3333]">
+                  Nos falta su identificación
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-[#5a8080]">
+                  Suba una foto de su INE, pasaporte o licencia. Con ella dejamos constancia de quién nos confía a
+                  su perrito, tal como dice el contrato que aceptó. <b>Es privada</b>: solo la ve el equipo de
+                  Perrones Cuu, nunca los paseadores.
+                </p>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setIneArchivo(e.target.files?.[0] ?? null)}
+                  className="mt-3 block w-full text-sm"
+                />
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <Button
+                    onClick={subirIdentificacion}
+                    disabled={!ineArchivo || ineSubiendo}
+                    className="rounded-full bg-[#3DCABD] font-bold text-white hover:bg-[#2ba89d]"
+                  >
+                    {ineSubiendo ? "Subiendo…" : "Subir identificación"}
+                  </Button>
+                  {ineMsg && (
+                    <span className={`text-sm font-semibold ${ineMsg.startsWith("¡Listo") ? "text-[#2ba89d]" : "text-destructive"}`}>
+                      {ineMsg}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
