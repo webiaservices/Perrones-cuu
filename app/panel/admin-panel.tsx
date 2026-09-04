@@ -312,11 +312,34 @@ export function AdminPanel({
   const [assignFor, setAssignFor] = useState<AdminReservation | null>(null)
   /** Reserva para la que se está armando un WhatsApp a mano (sin la API de Meta) */
   const [waManualFor, setWaManualFor] = useState<AdminReservation | null>(null)
-  // Buscador dentro del modal de asignar paseador (son muchos para scrollear)
+  /**
+   * Vista compacta de la tabla de paseos.
+   *
+   * Endy: "quiero ver 6 o 7 paseos en pantalla, no 3, como Excel". Lo que
+   * estiraba las filas eran las fechas del paquete, una debajo de otra. En
+   * compacto se resumen en un renglón (L/M/V · 7:00 PM) y se aprieta todo.
+   */
+  const [compacto, setCompacto] = useState(true)
+  useEffect(() => {
+    try {
+      const g = localStorage.getItem("panel-tabla-compacta")
+      if (g !== null) setCompacto(g === "1")
+    } catch {}
+  }, [])
+  const cambiarDensidad = (v: boolean) => {
+    setCompacto(v)
+    try { localStorage.setItem("panel-tabla-compacta", v ? "1" : "0") } catch {}
+  }
+  /** Clases de la celda según la densidad elegida */
+  const cel = compacto ? "py-1 pr-1.5 align-middle" : "py-3 pr-4"
+  /** Pastillas y selects de la tabla: en compacto van sin aire vertical */
+  const pastilla = compacto ? "px-2 py-0 text-[11px]" : "px-2.5 py-1 text-xs"
+
   /** Filtro de la vista Usuarios: ver solo dueños, solo paseadores, o todos */
   const [filtroRol, setFiltroRol] = useState<"todos" | "dueno" | "paseador">("todos")
   /** Ficha completa de una persona: banco, edad, identificación */
   const [fichaDe, setFichaDe] = useState<AdminUser | null>(null)
+  // Buscador dentro del modal de asignar paseador (son muchos para scrollear)
   const [walkerSearch, setWalkerSearch] = useState("")
   const [assigning, setAssigning] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -905,6 +928,20 @@ export function AdminPanel({
 
   // Mapa: package_id → todas las fechas de ese paquete (ordenadas)
   /**
+   * Resume las fechas de un paquete en un renglón: "L/M/V · 7:00 p.m.".
+   * Si los horarios no son todos iguales lo dice, para no esconder que un día
+   * va a otra hora.
+   */
+  const resumenFechas = (fechas: Date[]) => {
+    const INI = ["D", "L", "M", "X", "J", "V", "S"]
+    const dias = fechas.map((d) => INI[d.getDay()]).join("/")
+    const horas = Array.from(
+      new Set(fechas.map((d) => d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }))),
+    )
+    return `${dias} · ${horas.length === 1 ? horas[0] : "horarios distintos"}`
+  }
+
+  /**
    * ¿Esta vacante ya venció? MISMA regla que el panel del paseador (última
    * fecha del paquete + 1h de tolerancia). Si el admin la ve distinta a como
    * la ve el paseador, pasa lo que pasó: Endy veía "varias vacantes públicas"
@@ -1412,10 +1449,34 @@ export function AdminPanel({
           <section className="mt-6 rounded-3xl border border-border bg-background p-6 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-display text-2xl font-extrabold tracking-tight">Registro de paseos</h2>
-              <Button onClick={exportCSV} className="rounded-full bg-primary font-bold text-primary-foreground hover:bg-primary/90">
-                <Download className="h-4 w-4" />
-                Exportar a Excel/CSV
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Compacto: caben ~7 paseos en pantalla en vez de 3. Cómodo:
+                    los paquetes muestran día por día. Se recuerda la elección. */}
+                <div className="flex items-center rounded-full border border-border p-0.5">
+                  <button
+                    onClick={() => cambiarDensidad(true)}
+                    title="Ver más paseos en la pantalla"
+                    className={`rounded-full px-3 py-1 text-xs font-bold transition-colors ${
+                      compacto ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    Compacto
+                  </button>
+                  <button
+                    onClick={() => cambiarDensidad(false)}
+                    title="Ver cada día del paquete por separado"
+                    className={`rounded-full px-3 py-1 text-xs font-bold transition-colors ${
+                      !compacto ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    Cómodo
+                  </button>
+                </div>
+                <Button onClick={exportCSV} className="rounded-full bg-primary font-bold text-primary-foreground hover:bg-primary/90">
+                  <Download className="h-4 w-4" />
+                  Exportar a Excel/CSV
+                </Button>
+              </div>
             </div>
 
             <div className="mt-5 flex flex-col gap-3 sm:flex-row">
@@ -1471,9 +1532,9 @@ export function AdminPanel({
             )}
 
             <div className="mt-5 overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className={`w-full ${compacto ? "text-xs" : "text-sm"}`}>
                 <thead>
-                  <tr className="border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                  <tr className={`border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted-foreground ${compacto ? "[&>th]:pb-1.5" : ""}`}>
                     <th className="pb-3 pr-3 w-8">
                       {/* Selección para marcar pagos en lote */}
                       <input
@@ -1486,18 +1547,21 @@ export function AdminPanel({
                         }
                       />
                     </th>
+                    {/* En compacto los títulos se acortan: eran ellos los que
+                        marcaban el ancho mínimo de varias columnas y empujaban la
+                        tabla fuera de la pantalla. */}
                     <th className="pb-3 pr-2 w-10">Orden</th>
                     <th className="pb-3 pr-4">Fecha</th>
                     <th className="pb-3 pr-4">Perro</th>
                     <th className="pb-3 pr-4">Cliente</th>
                     <th className="pb-3 pr-4">Paseador</th>
                     <th className="pb-3 pr-4">Zona</th>
-                    <th className="pb-3 pr-4">Duración</th>
-                    <th className="whitespace-nowrap pb-3 pr-4">Precio total</th>
+                    <th className="pb-3 pr-4">{compacto ? "Dur." : "Duración"}</th>
+                    <th className="whitespace-nowrap pb-3 pr-4">{compacto ? "Precio" : "Precio total"}</th>
                     <th className="whitespace-nowrap pb-3 pr-4">Reparto</th>
-                    <th className="whitespace-nowrap pb-3 pr-4">Repetir</th>
+                    <th className="whitespace-nowrap pb-3 pr-4">{compacto ? "Repite" : "Repetir"}</th>
                     <th className="whitespace-nowrap pb-3 pr-4">Estado</th>
-                    <th className="whitespace-nowrap pb-3 pr-4">Visibilidad</th>
+                    <th className="whitespace-nowrap pb-3 pr-4">{compacto ? "Visible" : "Visibilidad"}</th>
                     <th className="whitespace-nowrap pb-3">Pago</th>
                   </tr>
                 </thead>
@@ -1515,7 +1579,7 @@ export function AdminPanel({
                       const isPaid = r.payment_status === "pagado"
                       return (
                       <tr key={r.id} className={`border-b border-border/50 align-top ${canMakePublic ? "bg-amber-50" : ""}`}>
-                        <td className="py-3 pr-3 align-top">
+                        <td className={`${compacto ? "py-1.5" : "py-3"} pr-3 align-top`}>
                           <input
                             type="checkbox"
                             aria-label="Seleccionar este paseo"
@@ -1526,8 +1590,8 @@ export function AdminPanel({
                         </td>
                         {/* Subir/bajar: para armar la ruta del día en el orden
                             que Endy la va a recorrer, no por fecha. */}
-                        <td className="py-3 pr-2">
-                          <div className="flex flex-col gap-0.5">
+                        <td className={cel}>
+                          <div className={`flex gap-0.5 ${compacto ? "" : "flex-col"}`}>
                             <button
                               onClick={() => moverPaseo(r.id, -1)}
                               title="Subir"
@@ -1544,19 +1608,32 @@ export function AdminPanel({
                             </button>
                           </div>
                         </td>
-                        <td className="py-3 pr-4 font-semibold">
+                        <td className={`${cel} font-semibold`}>
                           {r.scheduled_at ? (
                             r.package_id && packageDates[r.package_id]?.length > 1 ? (
                               <>
-                                <div className="text-xs leading-tight">
-                                  {packageDates[r.package_id].map((d, di) => (
-                                    <div key={di} className="capitalize">
-                                      {d.toLocaleDateString("es-MX", { weekday: "long" })} · {d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
-                                    </div>
-                                  ))}
-                                </div>
-                                <span className="mt-1 inline-block rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary">
-                                  Paquete · {packageDates[r.package_id].length} paseos
+                                {compacto ? (
+                                  // Un renglón en vez de uno por día: es lo que
+                                  // hacía que solo cupieran 3 paseos en pantalla
+                                  <span
+                                    className="whitespace-nowrap text-xs leading-tight"
+                                    title={packageDates[r.package_id]
+                                      .map((d) => d.toLocaleString("es-MX", { weekday: "long", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))
+                                      .join("\n")}
+                                  >
+                                    {resumenFechas(packageDates[r.package_id])}
+                                  </span>
+                                ) : (
+                                  <div className="text-xs leading-tight">
+                                    {packageDates[r.package_id].map((d, di) => (
+                                      <div key={di} className="capitalize">
+                                        {d.toLocaleDateString("es-MX", { weekday: "long" })} · {d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <span className={`${compacto ? "ml-1 px-1.5 py-0" : "mt-1 px-2 py-0.5"} inline-block rounded-full bg-primary/15 text-[10px] font-bold text-primary`}>
+                                  {compacto ? `×${packageDates[r.package_id].length}` : `Paquete · ${packageDates[r.package_id].length} paseos`}
                                 </span>
                               </>
                             ) : (
@@ -1564,25 +1641,41 @@ export function AdminPanel({
                                 <span className="capitalize">
                                   {new Date(r.scheduled_at).toLocaleDateString("es-MX", { weekday: "long" })}
                                 </span>
-                                <div className="text-xs text-muted-foreground">{fmtTime(r.scheduled_at)}</div>
+                                {compacto ? (
+                                  <span className="ml-1.5 whitespace-nowrap font-normal text-muted-foreground">
+                                    {fmtTime(r.scheduled_at)}
+                                  </span>
+                                ) : (
+                                  <div className="text-xs text-muted-foreground">{fmtTime(r.scheduled_at)}</div>
+                                )}
                               </>
                             )
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td className="py-3 pr-4">
+                        <td className={cel}>
                           {r.dog_name ?? "—"}
-                          {(r.dog_size || r.dog_breed) && (
-                            <div className="text-xs text-muted-foreground">
-                              {[r.dog_breed, r.dog_size].filter(Boolean).join(" · ")}
-                            </div>
-                          )}
+                          {(r.dog_size || r.dog_breed) &&
+                            (compacto ? (
+                              // Se guarda en el globo: puesto al lado partía la
+                              // columna en dos renglones y volvía a estirar la fila
+                              <span
+                                className="ml-1 cursor-help text-[10px] text-muted-foreground"
+                                title={[r.dog_breed, r.dog_size].filter(Boolean).join(" · ")}
+                              >
+                                ⓘ
+                              </span>
+                            ) : (
+                              <div className="text-xs text-muted-foreground">
+                                {[r.dog_breed, r.dog_size].filter(Boolean).join(" · ")}
+                              </div>
+                            ))}
                         </td>
-                        <td className="py-3 pr-4">
+                        <td className={cel}>
                           {r.manual_client_name ?? ownerMap[r.user_id]?.name ?? "—"}
                           {(r.manual_client_phone ?? ownerMap[r.user_id]?.phone) && (
-                            <div className="text-xs text-muted-foreground">
+                            <div className={`text-xs text-muted-foreground ${compacto ? "whitespace-nowrap" : ""}`}>
                               {r.manual_client_phone ?? ownerMap[r.user_id]?.phone}
                               {/* Mensaje ya escrito, sale del WhatsApp de siempre.
                                   No usa la API de Meta, así que funciona aunque
@@ -1590,53 +1683,85 @@ export function AdminPanel({
                               <button
                                 onClick={() => setWaManualFor(r)}
                                 title="Mandarle WhatsApp con el mensaje ya escrito"
-                                className="ml-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-200"
+                                className={`ml-1.5 rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-800 hover:bg-emerald-200 ${
+                                  compacto ? "px-1.5 py-0" : "px-2 py-0.5"
+                                }`}
                               >
-                                WhatsApp
+                                {compacto ? "WA" : "WhatsApp"}
                               </button>
                             </div>
                           )}
-                          {/* Los clientes manuales no tienen cuenta, así que no traen correo */}
-                          {ownerMap[r.user_id]?.email && (
+                          {/* Los clientes manuales no tienen cuenta, así que no traen correo.
+                              En compacto el correo se esconde: casi nunca se usa desde
+                              aquí y era el renglón que más estiraba la fila. Sigue en
+                              Cómodo y en la ficha del usuario. */}
+                          {!compacto && ownerMap[r.user_id]?.email && (
                             <div className="text-xs text-muted-foreground break-all">
                               {ownerMap[r.user_id]?.email}
                             </div>
                           )}
                         </td>
-                        <td className="py-3 pr-4">
+                        <td className={cel}>
                           {r.walker_id ? (
-                            <>
-                              {walkerMap[r.walker_id]?.name ?? "Paseador"}
-                              <div className="text-[10px] text-muted-foreground">ID: {r.walker_id.slice(0, 8)}</div>
-                              {/* Si soltó el paseo o no puede, se le puede quitar y dar a otro */}
-                              <div className="mt-1 flex flex-wrap gap-1">
+                            compacto ? (
+                              // Mismo renglón: nombre y los dos botones. El ID largo
+                              // se esconde (queda en el globo del nombre).
+                              <span
+                                className="flex items-center gap-1 whitespace-nowrap"
+                                title={`ID: ${r.walker_id.slice(0, 8)}`}
+                              >
+                                {walkerMap[r.walker_id]?.name ?? "Paseador"}
                                 <button
                                   onClick={() => { setWalkerSearch(""); setAssignFor(r) }}
-                                  className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary hover:bg-primary/25"
+                                  title="Cambiar de paseador"
+                                  className="rounded-full bg-primary/15 px-1.5 text-[10px] font-bold text-primary hover:bg-primary/25"
                                 >
                                   Cambiar
                                 </button>
                                 <button
                                   onClick={() => quitarPaseador(r)}
-                                  className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-bold text-destructive hover:bg-destructive/20"
+                                  title="Quitarle el paseo a este paseador"
+                                  className="rounded-full bg-destructive/10 px-1.5 text-[10px] font-bold text-destructive hover:bg-destructive/20"
                                 >
                                   Quitar
                                 </button>
-                              </div>
-                            </>
+                              </span>
+                            ) : (
+                              <>
+                                {walkerMap[r.walker_id]?.name ?? "Paseador"}
+                                <div className="text-[10px] text-muted-foreground">ID: {r.walker_id.slice(0, 8)}</div>
+                                {/* Si soltó el paseo o no puede, se le puede quitar y dar a otro */}
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  <button
+                                    onClick={() => { setWalkerSearch(""); setAssignFor(r) }}
+                                    className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary hover:bg-primary/25"
+                                  >
+                                    Cambiar
+                                  </button>
+                                  <button
+                                    onClick={() => quitarPaseador(r)}
+                                    className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-bold text-destructive hover:bg-destructive/20"
+                                  >
+                                    Quitar
+                                  </button>
+                                </div>
+                              </>
+                            )
                           ) : (
                             <button
                               onClick={() => { setWalkerSearch(""); setAssignFor(r) }}
-                              className="rounded-full bg-primary/15 px-2.5 py-1 text-xs font-bold text-primary hover:bg-primary/25"
+                              className={`whitespace-nowrap rounded-full bg-primary/15 font-bold text-primary hover:bg-primary/25 ${
+                                compacto ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-xs"
+                              }`}
                             >
                               + Asignar
                             </button>
                           )}
                         </td>
-                        <td className="py-3 pr-4">{r.zone ?? "—"}</td>
-                        <td className="py-3 pr-4">{durationMin(r.scheduled_at, r.scheduled_until)} min</td>
-                        <td className="py-3 pr-4 font-bold">${effectivePrice(r).toLocaleString()}</td>
-                        <td className="py-3 pr-4 text-xs leading-tight">
+                        <td className={`${cel} ${compacto ? "whitespace-nowrap" : ""}`}>{r.zone ?? "—"}</td>
+                        <td className={`${cel} whitespace-nowrap`}>{durationMin(r.scheduled_at, r.scheduled_until)} min</td>
+                        <td className={`${cel} font-bold`}>${effectivePrice(r).toLocaleString()}</td>
+                        <td className={`${cel} text-xs leading-tight`}>
                           {editingFeeId === r.id ? (
                             <div className="flex items-center gap-1">
                               <span className="text-muted-foreground">$</span>
@@ -1669,47 +1794,60 @@ export function AdminPanel({
                               className="text-left hover:opacity-70"
                               title="Click para editar tu ganancia en pesos (vacío = 30% automático)"
                             >
-                              <div className="font-bold text-primary underline decoration-dotted underline-offset-2">
-                                Admin: ${adminShareFor(r).toLocaleString()}
-                              </div>
-                              <div className="text-muted-foreground">
-                                Paseador: ${walkerShareFor(r).toLocaleString()}
-                              </div>
+                              {compacto ? (
+                                // Un renglón: "tuyo / del paseador". El detalle con
+                                // etiquetas completas está en Cómodo.
+                                <div className="whitespace-nowrap">
+                                  <span className="font-bold text-primary underline decoration-dotted underline-offset-2">
+                                    ${adminShareFor(r).toLocaleString()}
+                                  </span>
+                                  <span className="text-muted-foreground"> / ${walkerShareFor(r).toLocaleString()}</span>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="font-bold text-primary underline decoration-dotted underline-offset-2">
+                                    Admin: ${adminShareFor(r).toLocaleString()}
+                                  </div>
+                                  <div className="text-muted-foreground">
+                                    Paseador: ${walkerShareFor(r).toLocaleString()}
+                                  </div>
+                                </>
+                              )}
                             </button>
                           )}
                         </td>
-                        <td className="py-3 pr-4">
+                        <td className={cel}>
                           {/* whitespace-nowrap: si no, la columna angosta parte
                               "Una vez" en dos renglones y se ve descuadrado */}
                           {r.recurrencia === "semanal" ? (
-                            <span className="inline-block whitespace-nowrap rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-800">
+                            <span className={`inline-block whitespace-nowrap rounded-full bg-indigo-100 font-bold text-indigo-800 ${pastilla}`}>
                               🔁 Semanal
                             </span>
                           ) : (
-                            <span className="inline-block whitespace-nowrap rounded-full bg-secondary px-2.5 py-1 text-xs font-bold text-muted-foreground">
+                            <span className={`inline-block whitespace-nowrap rounded-full bg-secondary font-bold text-muted-foreground ${pastilla}`}>
                               Una vez
                             </span>
                           )}
                         </td>
-                        <td className="py-3 pr-4">
+                        <td className={cel}>
                           <select
                             value={r.status}
                             disabled={updating === r.id}
                             onChange={(e) => updateStatus(r.id, e.target.value)}
-                            className={`rounded-full px-3 py-1.5 text-xs font-bold ${STATUS_BG[r.status] ?? "bg-secondary"}`}
+                            className={`rounded-full font-bold ${compacto ? "px-2 py-0 text-[11px]" : "px-3 py-1.5 text-xs"} ${STATUS_BG[r.status] ?? "bg-secondary"}`}
                           >
                             {ALL_STATUSES.map((s) => (
                               <option key={s} value={s}>{STATUS_LABELS[s] ?? s}</option>
                             ))}
                           </select>
                         </td>
-                        <td className="py-3 pr-4">
+                        <td className={cel}>
                           {/* Toggle público⇄privado — se puede cambiar cuando quieras
                               mientras el paseo siga sin paseador asignado */}
                           {vencioVacante(r) ? (
                             <span
                               title="Las fechas de este paseo ya pasaron: el paseador NO lo ve aunque esté público. Reagéndalo o cancélalo."
-                              className="whitespace-nowrap rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-800"
+                              className={`whitespace-nowrap rounded-full bg-rose-100 font-bold text-rose-800 ${pastilla}`}
                             >
                               ⏰ Venció
                             </span>
@@ -1718,7 +1856,7 @@ export function AdminPanel({
                               <button
                                 onClick={() => setVisibility(r, "pending_admin")}
                                 title="Está visible para paseadores. Click para cerrarlo (privado)."
-                                className="whitespace-nowrap rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-200"
+                                className={`whitespace-nowrap rounded-full bg-emerald-100 font-bold text-emerald-800 hover:bg-emerald-200 ${pastilla}`}
                               >
                                 🌐 Público
                               </button>
@@ -1726,22 +1864,22 @@ export function AdminPanel({
                               <button
                                 onClick={() => setVisibility(r, "public")}
                                 title="Está privado (solo tú). Click para abrirlo a los paseadores."
-                                className="whitespace-nowrap rounded-full bg-amber-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-amber-600"
+                                className={`whitespace-nowrap rounded-full bg-amber-500 font-bold text-white hover:bg-amber-600 ${pastilla}`}
                               >
                                 🔒 Privado
                               </button>
                             )
                           ) : (
-                            <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-bold text-muted-foreground">
+                            <span className={`whitespace-nowrap rounded-full bg-secondary font-bold text-muted-foreground ${pastilla}`}>
                               {r.walker_id ? "asignado" : "—"}
                             </span>
                           )}
                         </td>
-                        <td className="py-3">
+                        <td className={cel}>
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => togglePayment(r.id, !isPaid)}
-                              className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                              className={`whitespace-nowrap rounded-full font-bold ${pastilla} ${
                                 isPaid ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200" : "bg-amber-100 text-amber-800 hover:bg-amber-200"
                               }`}
                             >
@@ -1751,7 +1889,7 @@ export function AdminPanel({
                               <button
                                 onClick={() => deleteReservation(r.id)}
                                 title="Borrar definitivamente"
-                                className="rounded-full bg-red-100 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-200"
+                                className={`rounded-full bg-red-100 font-bold text-red-700 hover:bg-red-200 ${compacto ? "px-1.5 py-0 text-[11px]" : "px-2 py-1 text-xs"}`}
                               >
                                 🗑
                               </button>
