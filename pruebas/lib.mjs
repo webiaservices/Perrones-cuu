@@ -77,6 +77,9 @@ export async function borrarCuenta(db, cuenta) {
     await db.storage.from("identificaciones").remove(archivos.map((a) => `${cuenta.id}/${a.name}`))
   }
   await db.from("reservations").delete().eq("user_id", cuenta.id)
+  await db.from("dogs").delete().eq("owner_id", cuenta.id)
+  await db.from("reviews").delete().eq("owner_id", cuenta.id)
+  await db.from("contracts").delete().eq("user_id", cuenta.id)
   await db.from("profiles").delete().eq("id", cuenta.id)
   const { error } = await db.auth.admin.deleteUser(cuenta.id)
   if (error) throw new Error(`OJO: quedó viva la cuenta ${cuenta.email} (${cuenta.id}): ${error.message}`)

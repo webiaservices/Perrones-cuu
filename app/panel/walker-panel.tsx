@@ -174,6 +174,13 @@ export function WalkerPanel({
 
   const saveProfile = async () => {
     setProfileMsg(null)
+    // "Otra" sin colonia guardaba zone = null y aun así decía "Perfil
+    // actualizado": el paseador se quedaba sin zona y sin enterarse, y dejaba
+    // de recibir avisos de vacantes de su colonia.
+    if (zone === "Otra" && !zoneOther.trim()) {
+      setProfileMsg({ kind: "error", text: "Escribe cuál es tu colonia, o elige una de la lista." })
+      return
+    }
     setSavingProfile(true)
     const supabase = createClient()
     const { error } = await supabase
@@ -182,7 +189,12 @@ export function WalkerPanel({
       .eq("id", userId)
     setSavingProfile(false)
     if (error) {
-      setProfileMsg({ kind: "error", text: error.message })
+      setProfileMsg({
+        kind: "error",
+        text: /row-level security|permission denied|JWT/i.test(error.message)
+          ? "Tu sesión ya venció. Vuelve a entrar y guarda otra vez."
+          : "No se pudo guardar. Revisa tu internet e inténtalo otra vez.",
+      })
     } else {
       setProfileMsg({ kind: "ok", text: "Perfil actualizado." })
       // Auto-clear el mensaje después de 3s
@@ -202,17 +214,28 @@ export function WalkerPanel({
     setUpdating(id)
     const target = reservations.find((r) => r.id === id)
 
-    // Usa endpoint server-side que bypasa RLS y da mensajes precisos
-    const res = await fetch("/api/accept-paseo", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reservationId: id }),
-    })
-    const result = await res.json()
+    // Usa endpoint server-side que bypasa RLS y da mensajes precisos.
+    // Todo va dentro de try/catch: el paseador anda en la calle, con señal
+    // intermitente. Sin esto, un fetch que truena dejaba el botón en
+    // "Aceptando…" para siempre y él no sabía si le tocó el paseo o no.
+    let res: Response
+    let result: { error?: string } = {}
+    try {
+      res = await fetch("/api/accept-paseo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: id }),
+      })
+      result = await res.json().catch(() => ({}))
+    } catch {
+      setUpdating(null)
+      alert("No se pudo aceptar: se cayó tu conexión. Revisa tu señal y vuelve a intentar — el paseo sigue disponible.")
+      return
+    }
     setUpdating(null)
 
     if (!res.ok) {
-      alert(result.error ?? "Error al aceptar el paseo")
+      alert(result.error ?? `No se pudo aceptar el paseo (error ${res.status}). Inténtalo otra vez.`)
       if (res.status === 404 || res.status === 409) {
         setReservations((prev) => prev.filter((r) => r.id !== id))
       }
@@ -243,6 +266,31 @@ export function WalkerPanel({
     setReservations((prev) => prev.filter((r) => r.id !== id))
   }
 
+  /**
+   * Qué cambios de estado acepta de verdad la base para un paseo.
+   * Espejo del trigger guard_reservation_update: avanzar solo va de
+   * confirmada→en_curso→completada, y soltar no se puede si ya se completó.
+   */
+  /** Postgres contesta en inglés y con jerga; el paseador no tiene por qué leerla. */
+  const traducir = (msg: string | undefined, porDefecto: string) => {
+    if (!msg) return porDefecto
+    if (/row-level security|permission denied|JWT|not authenticated/i.test(msg)) {
+      return "Tu sesión ya venció. Vuelve a entrar y hazlo otra vez."
+    }
+    if (/No tienes permiso|Solo puedes/i.test(msg)) {
+      return "Ese cambio ya no se puede hacer en este paseo. Avísale al admin por WhatsApp."
+    }
+    return porDefecto
+  }
+
+  const cambiosPosibles = (status: string): ("en_curso" | "completada" | "cancelada")[] => {
+    const lista: ("en_curso" | "completada" | "cancelada")[] = []
+    if (status === "confirmada") lista.push("en_curso")
+    if (status === "confirmada" || status === "en_curso") lista.push("completada")
+    if (status !== "completada" && status !== "cancelada") lista.push("cancelada")
+    return lista
+  }
+
   const updateStatus = async (id: string, status: string) => {
     const supabase = createClient()
 
@@ -267,7 +315,7 @@ export function WalkerPanel({
         : await query.eq("id", id).select("id")
       setUpdating(null)
       if (error || !data || data.length === 0) {
-        alert(error?.message ?? "No se pudo soltar el paseo. Contacta al admin por WhatsApp.")
+        alert(traducir(error?.message, "No se pudo soltar el paseo. Contacta al admin por WhatsApp."))
         return
       }
       setReservations((prev) =>
@@ -295,7 +343,7 @@ export function WalkerPanel({
       .select("id")
     setUpdating(null)
     if (error || !data || data.length === 0) {
-      alert(error?.message ?? "No se pudo actualizar el paseo. Avísale al admin por WhatsApp.")
+      alert(traducir(error?.message, "No se pudo actualizar el paseo. Avísale al admin por WhatsApp."))
       return
     }
     setReservations((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)))
@@ -816,13 +864,24 @@ export function WalkerPanel({
                     )}
                   </div>
 
-                  {/* Cambio de estado para los que ya son míos */}
+                  {/* Cambio de estado para los que ya son míos.
+                      Solo se pintan los cambios que el trigger de la base
+                      (0014_secure_reservations) va a aceptar: antes salían
+                      todos, el paseador picaba "En curso" en un paseo ya
+                      completado y le contestaba un error de Postgres en inglés. */}
                   {isMine && (
                     <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-3">
-                      {(["en_curso", "completada", "cancelada"] as const).map((s) => (
+                      {cambiosPosibles(r.status).length === 0 && (
+                        <p className="text-xs font-semibold text-muted-foreground">
+                          {r.status === "completada"
+                            ? "Este paseo ya quedó completado."
+                            : "Este paseo ya está cerrado."}
+                        </p>
+                      )}
+                      {cambiosPosibles(r.status).map((s) => (
                         <button
                           key={s}
-                          disabled={updating === r.id || r.status === s}
+                          disabled={updating === r.id}
                           onClick={() => updateStatus(r.id, s)}
                           className="rounded-full border px-3 py-1.5 text-xs font-bold transition-all disabled:cursor-default"
                           style={
@@ -1127,10 +1186,28 @@ function ReservationDetailModal({
           {isMine && reservation.house_photo_path && (
             <button
               onClick={async () => {
-                const res = await fetch(`/api/ver-fachada?reservationId=${reservation.id}`)
-                const json = await res.json()
-                if (json.url) window.open(json.url, "_blank", "noopener,noreferrer")
-                else alert(json.error ?? "No se pudo abrir la foto")
+                // Dos cosas que fallaban calladas: el fetch sin try/catch (el
+                // paseador anda en la calle) y window.open, que el celular
+                // bloquea por ser una pestaña nueva abierta desde una promesa.
+                // Ahora si el bloqueador la detiene, se le da el enlace.
+                try {
+                  const res = await fetch(`/api/ver-fachada?reservationId=${reservation.id}`)
+                  const json = await res.json().catch(() => ({}))
+                  if (!res.ok || !json.url) {
+                    alert(json.error ?? `No se pudo abrir la foto (error ${res.status}).`)
+                    return
+                  }
+                  const w = window.open(json.url, "_blank", "noopener,noreferrer")
+                  if (!w) {
+                    // Se copia el enlace y se le dice, en vez de no hacer nada
+                    await navigator.clipboard?.writeText(json.url).catch(() => {})
+                    alert(
+                      "Tu navegador bloqueó la ventana de la foto. Ya te copiamos el enlace: pégalo en una pestaña nueva.",
+                    )
+                  }
+                } catch {
+                  alert("No se pudo abrir la foto: revisa tu señal e inténtalo otra vez.")
+                }
               }}
               className="w-full rounded-xl bg-secondary px-3 py-2 text-left font-semibold hover:bg-secondary/70"
             >

@@ -56,9 +56,16 @@ function SignUpForm() {
     chihuahua: true,
     cdmx: true, // optimista: si no cargan los ajustes, no se bloquea a nadie
   })
+  const registroCerrado = role === "paseador" && !registroAbierto[city]
   const [esperaEmail, setEsperaEmail] = useState("")
   const [esperaEnviada, setEsperaEnviada] = useState(false)
   const [esperaEnviando, setEsperaEnviando] = useState(false)
+  /** Error de la lista de espera, aparte del error del registro: se pintan en
+   *  lugares distintos de la pantalla. */
+  const [esperaError, setEsperaError] = useState<string | null>(null)
+  /** El registro de paseadores está cerrado en esta ciudad: no tiene caso
+   *  enseñarle los campos si no va a haber botón para mandarlos. */
+
   const [bankName, setBankName] = useState("")
   const [bankClabe, setBankClabe] = useState("")
   const [birthDate, setBirthDate] = useState("")
@@ -115,7 +122,7 @@ function SignUpForm() {
 
   const apuntarEnEspera = async () => {
     setEsperaEnviando(true)
-    setError(null)
+    setEsperaError(null)
     try {
       const res = await fetch("/api/lista-espera", {
         method: "POST",
@@ -126,7 +133,10 @@ function SignUpForm() {
       if (!res.ok) throw new Error(json?.error ?? "No se pudo")
       setEsperaEnviada(true)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo guardar")
+      // Va en su PROPIO estado: antes usaba el mismo `error` del registro, que
+      // se pinta hasta abajo del formulario — la persona picaba "Avísenme",
+      // no veía nada y creía que el botón no servía.
+      setEsperaError(e instanceof Error ? e.message : "No se pudo guardar. Inténtalo otra vez.")
     } finally {
       setEsperaEnviando(false)
     }
@@ -188,6 +198,7 @@ function SignUpForm() {
       // correo está activada todavía no hay sesión y Storage rechazaría al
       // navegador. Si esto falla, el registro NO se cae — el admin puede
       // pedírsela después desde el panel.
+      let fallaIdentificacion: string | null = null
       if ((role === "dueno" || role === "paseador") && idFile && data.user?.id) {
         try {
           const fd = new FormData()
@@ -196,10 +207,13 @@ function SignUpForm() {
           const up = await fetch("/api/subir-identificacion", { method: "POST", body: fd })
           if (!up.ok) {
             const j = await up.json().catch(() => ({}))
-            console.warn("[signup] identificación no guardada:", j?.error)
+            // La cuenta SÍ quedó creada, así que no se cae el registro — pero
+            // sin este aviso la persona nunca se enteraba de que su
+            // identificación no subió, y le volvían a salir avisos pidiéndosela.
+            fallaIdentificacion = j?.error ?? "no se pudo guardar"
           }
-        } catch (upErr) {
-          console.warn("[signup] identificación no guardada:", upErr)
+        } catch {
+          fallaIdentificacion = "se cayó la conexión al subirla"
         }
       }
 
@@ -216,8 +230,12 @@ function SignUpForm() {
       const rawRedirect = params.get("redirectTo")
       const safeRedirect = rawRedirect && rawRedirect.startsWith("/") ? rawRedirect : null
 
+      const colaINE = fallaIdentificacion
+        ? `${safeRedirect ?? "/panel"}${(safeRedirect ?? "/panel").includes("?") ? "&" : "?"}sinINE=${encodeURIComponent(fallaIdentificacion)}`
+        : null
+
       if (data.session) {
-        router.push(safeRedirect ?? "/panel")
+        router.push(colaINE ?? safeRedirect ?? "/panel")
         router.refresh()
       } else {
         const successUrl = safeRedirect
@@ -360,6 +378,9 @@ function SignUpForm() {
                       {esperaEnviando ? "Guardando…" : "Avísenme"}
                     </Button>
                   </div>
+                  {esperaError && (
+                    <p className="mt-2 text-sm font-bold text-destructive">{esperaError}</p>
+                  )}
                   <p className="mt-3 text-xs">
                     ¿Tienes perrito? También puedes{" "}
                     <button type="button" onClick={() => setRole("dueno")} className="font-bold underline">
@@ -371,6 +392,11 @@ function SignUpForm() {
               )}
             </div>
           )}
+
+          {/* Con el registro de paseadores cerrado NO se pintan los campos de
+              abajo: antes seguían ahí (identificación, correo, contraseña,
+              contrato) pero el botón "Registrarme" desaparecía, así que la
+              persona llenaba todo y no tenía con qué mandarlo. */}
 
           {/* Paseador: zona + horarios */}
           {role === "paseador" && registroAbierto[city] && (
@@ -460,6 +486,8 @@ function SignUpForm() {
           )}
 
           {/* Identificación oficial — solo dueños (punto 7 del contrato) */}
+          {registroCerrado ? null : (
+          <>
           {(role === "dueno" || role === "paseador") && (
             <div className="flex flex-col gap-2 rounded-2xl bg-muted/50 p-3">
               <Label htmlFor="idFile">Identificación oficial</Label>
@@ -543,10 +571,10 @@ function SignUpForm() {
 
           {error && <p className="text-sm font-medium text-destructive">{error}</p>}
 
-          {!(role === "paseador" && !registroAbierto[city]) && (
           <Button type="submit" size="lg" className="w-full rounded-full font-bold" disabled={loading}>
             {loading ? "Creando cuenta..." : "Registrarme"}
           </Button>
+          </>
           )}
 
           <p className="text-center text-sm text-muted-foreground">

@@ -222,15 +222,32 @@ export function AdminPanel({
   const [waLoading, setWaLoading] = useState(false)
   const [waTestPhone, setWaTestPhone] = useState("")
   const [waTestMsg, setWaTestMsg] = useState<string | null>(null)
+  /** Por qué no se pudo revisar la conexión de WhatsApp. */
+  const [waError, setWaError] = useState<string | null>(null)
   const loadWaStatus = async () => {
     setWaLoading(true)
+    setWaError(null)
     try {
       const res = await fetch("/api/whatsapp-status")
-      setWaStatus(await res.json())
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        // Guardar el cuerpo de error como si fuera el estado pintaba la tarjeta
+        // ámbar de "algo anda mal con WhatsApp" cuando lo que venció fue la sesión.
+        setWaError(
+          res.status === 401 || res.status === 403
+            ? "Tu sesión ya venció: no se pudo revisar WhatsApp. Vuelve a entrar."
+            : `No se pudo revisar WhatsApp (${data.error ?? `error ${res.status}`}).`,
+        )
+        setWaStatus(null)
+        return
+      }
+      setWaStatus(data)
     } catch {
+      setWaError("No se pudo revisar WhatsApp: revisa tu internet y pícale a Revisar de nuevo.")
       setWaStatus(null)
+    } finally {
+      setWaLoading(false)
     }
-    setWaLoading(false)
   }
   // Bandeja de WhatsApp: conversaciones con los clientes
   type WaConv = {
@@ -245,41 +262,82 @@ export function AdminPanel({
   const [convAbierta, setConvAbierta] = useState<string | null>(null)
   const [respuesta, setRespuesta] = useState("")
   const [enviando, setEnviando] = useState(false)
+  /** Si la bandeja no se pudo cargar, NO es lo mismo que "no hay mensajes":
+   *  con lo segundo Endy deja de contestarle a un cliente que sí escribió. */
+  const [convsError, setConvsError] = useState<string | null>(null)
   const loadConvs = async () => {
     setConvsLoading(true)
+    setConvsError(null)
     try {
       const res = await fetch("/api/whatsapp-inbox")
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setConvsError(
+          res.status === 401 || res.status === 403
+            ? "Tu sesión ya venció: no se pudo abrir la bandeja. Vuelve a entrar."
+            : `No se pudo abrir la bandeja (${data.error ?? `error ${res.status}`}). Pícale a Actualizar.`,
+        )
+        setConvs([])
+        return
+      }
       setConvs(data.conversaciones ?? [])
     } catch {
+      setConvsError("No se pudo abrir la bandeja: revisa tu internet y pícale a Actualizar.")
       setConvs([])
+    } finally {
+      setConvsLoading(false)
     }
-    setConvsLoading(false)
   }
   const responder = async (telefono: string) => {
     if (!respuesta.trim()) return
     setEnviando(true)
-    const res = await fetch("/api/whatsapp-inbox", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ telefono, texto: respuesta }),
-    })
-    const data = await res.json()
-    setEnviando(false)
-    if (!data.ok) return alert(data.mensaje ?? data.error ?? "No se pudo enviar")
-    setRespuesta("")
-    loadConvs()
+    try {
+      const res = await fetch("/api/whatsapp-inbox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telefono, texto: respuesta }),
+      })
+      // .json() truena si Vercel devolvió HTML de error: por eso va adentro
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.ok) {
+        setAvisoError(
+          `No se mandó el mensaje a ${telefono}: ${data.mensaje ?? data.error ?? `el servidor contestó ${res.status}`}. El texto sigue escrito, puedes volver a intentar.`,
+        )
+        return
+      }
+      setAvisoError(null)
+      setRespuesta("")
+      loadConvs()
+    } catch {
+      // Sin este catch, setEnviando(false) nunca corría y el botón se quedaba
+      // en "Enviando…" para siempre.
+      setAvisoError(
+        "No se mandó el mensaje: se cayó la conexión. El texto sigue escrito, pícale otra vez cuando tengas señal.",
+      )
+    } finally {
+      setEnviando(false)
+    }
   }
 
+  const [waTestEnviando, setWaTestEnviando] = useState(false)
   const sendWaTest = async () => {
     setWaTestMsg(null)
-    const res = await fetch("/api/whatsapp-status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ telefono: waTestPhone }),
-    })
-    const data = await res.json()
-    setWaTestMsg(data.mensaje ?? data.error ?? "Error")
+    setWaTestEnviando(true)
+    try {
+      const res = await fetch("/api/whatsapp-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telefono: waTestPhone }),
+      })
+      const data = await res.json().catch(() => ({}))
+      setWaTestMsg(data.mensaje ?? data.error ?? `El servidor contestó ${res.status}`)
+    } catch {
+      // Twilio puede tardar varios segundos: sin aviso Endy le picaba tres
+      // veces y mandaba tres mensajes de prueba.
+      setWaTestMsg("No se mandó: se cayó la conexión. Inténtalo otra vez.")
+    } finally {
+      setWaTestEnviando(false)
+    }
   }
   // Reparto: default el admin se queda el 30% del precio. Editable en PESOS
   // por paseo (admin_fee_mxn en la reserva). adminFee (global, en pesos) es el
@@ -300,12 +358,17 @@ export function AdminPanel({
     setFeeMsg(null)
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      // Antes no se miraba el error: si el guardado fallaba, la pantalla decía
-      // que sí y el número volvía al viejo en la siguiente carga.
-      const { error } = await supabase.from("profiles").update({ commission_pct: v }).eq("id", user.id)
-      setFeeMsg(error ? `No se guardó: ${error.message}` : "Guardado.")
+    if (!user) {
+      // Con la sesión vencida esto se saltaba en silencio: no guardaba nada y
+      // el mensaje se quedaba vacío, así que parecía que sí había guardado.
+      setFeeMsg("No se guardó: tu sesión ya venció. Vuelve a entrar e inténtalo otra vez.")
+      setSavingFee(false)
+      return
     }
+    // Antes no se miraba el error: si el guardado fallaba, la pantalla decía
+    // que sí y el número volvía al viejo en la siguiente carga.
+    const { error } = await supabase.from("profiles").update({ commission_pct: v }).eq("id", user.id)
+    setFeeMsg(error ? explicar(error.message, "No se guardó tu reparto") : "Guardado.")
     setSavingFee(false)
   }
   const [updatingUser, setUpdatingUser] = useState<string | null>(null)
@@ -722,11 +785,19 @@ export function AdminPanel({
     setDocTipo(tipo)
     setDocMsg(null)
     const supabase = createClient()
-    const { data } = await supabase
+    const { data, error: errDoc } = await supabase
       .from("documentos")
       .select("version, texto, vigente, created_at")
       .eq("tipo", tipo)
       .order("created_at", { ascending: false })
+    if (errDoc) {
+      // Si esto falla en silencio, la pantalla cae al texto del código y
+      // enseña la versión del código: Endy creería que perdió lo que publicó
+      // y lo volvería a publicar encima.
+      setAvisoError(
+        explicar(errDoc.message, "No se pudo leer el contrato publicado — lo que ves abajo es el texto de respaldo, NO lo publiques encima"),
+      )
+    }
     const filas = data ?? []
     setDocHistorial(filas.map((d) => ({ version: d.version as string, vigente: d.vigente as boolean, created_at: d.created_at as string })))
     const vigente = filas.find((d) => d.vigente)
@@ -739,11 +810,15 @@ export function AdminPanel({
       setDocVersion(CONTRACT_VERSION)
     }
     // Quién aceptó qué versión, para saber a quién le falta la nueva
-    const { data: acc } = await supabase
+    const { data: acc, error: errAcc } = await supabase
       .from("contracts")
       .select("user_id, version, accepted_at")
       .eq("type", tipo)
       .order("accepted_at", { ascending: false })
+    if (errAcc) {
+      // Sin esto, la lista sale vacía y parece que NADIE ha firmado.
+      setAvisoError(explicar(errAcc.message, "No se pudo leer quién ya firmó — la lista de abajo puede estar incompleta"))
+    }
     const mapa: Record<string, string> = {}
     for (const a of acc ?? []) {
       // se queda la más reciente de cada persona
@@ -791,13 +866,23 @@ export function AdminPanel({
    * solo deja constancia de la fecha en que se le pidió, para saber desde
    * cuándo lleva sin firmar.
    */
+  /** Resultado de "Pedirle que firme", POR PERSONA. Antes escribía en docMsg,
+   *  que se pinta hasta arriba en la otra tarjeta: con decenas de renglones,
+   *  Endy picaba y no veía absolutamente nada. */
+  const [firmaMsg, setFirmaMsg] = useState<{ id: string; ok: boolean; texto: string } | null>(null)
   const pedirReaceptacion = async (userId: string) => {
     const supabase = createClient()
     const { error } = await supabase
       .from("profiles")
       .update({ contrato_reaceptacion_pedida_at: new Date().toISOString() })
       .eq("id", userId)
-    setDocMsg(error ? `No se pudo: ${error.message}` : "Listo: le sale el aviso la próxima vez que entre.")
+    setFirmaMsg({
+      id: userId,
+      ok: !error,
+      texto: error
+        ? explicar(error.message, "No se pudo pedir la firma")
+        : "Listo: le sale el aviso la próxima vez que entre.",
+    })
   }
 
   const guardarPrecios = async () => {
@@ -1052,9 +1137,21 @@ export function AdminPanel({
     )
 
     const supabase = createClient()
-    await Promise.all(
+    // Se guarda TODO el orden nuevo. Si un solo renglón falla, lo que se ve en
+    // pantalla ya no es lo que hay en la base: la ruta del día que Endy imprima
+    // o le dicte al paseador estaría equivocada. Por eso se avisa y se recarga.
+    const resultados = await Promise.all(
       lista.map((rid, pos) => supabase.from("reservations").update({ orden: pos }).eq("id", rid)),
     )
+    const fallo = resultados.find((r) => r.error)
+    if (fallo?.error) {
+      setAvisoError(
+        explicar(fallo.error.message, "No se guardó el orden nuevo — lo que ves en pantalla no quedó guardado"),
+      )
+      router.refresh()
+      return
+    }
+    setAvisoError(null)
   }
 
   // Guarda el admin_fee_mxn en una reservación específica (o el paquete entero).
@@ -1065,7 +1162,11 @@ export function AdminPanel({
     const supabase = createClient()
     const query = supabase.from("reservations").update({ admin_fee_mxn: value })
     const { error } = r.package_id ? await query.eq("package_id", r.package_id) : await query.eq("id", r.id)
-    if (error) { alert(`Error: ${error.message}`); return }
+    if (error) {
+      setAvisoError(explicar(error.message, "No se guardó tu ganancia en ese paseo"))
+      return
+    }
+    setAvisoError(null)
     setReservations((prev) =>
       prev.map((x) => (r.package_id ? x.package_id === r.package_id : x.id === r.id) ? { ...x, admin_fee_mxn: value } : x),
     )
@@ -1111,6 +1212,24 @@ export function AdminPanel({
   // Cambio de estado. Para paquetes multi-día "cancelada" aplica a TODO el
   // paquete (la tabla solo muestra el paseo 1; si no, los días 2-N quedarían
   // vivos e invisibles). Completada/en_curso sí son por paseo individual.
+  /**
+   * Lo que salió mal en la última acción del panel.
+   *
+   * Antes casi todas las acciones se tragaban el error: el UPDATE fallaba, la
+   * pantalla se quedaba igual y Endy creía que había guardado. Ahora cualquier
+   * falla aterriza aquí y se pinta arriba, donde no se puede no ver.
+   */
+  const [avisoError, setAvisoError] = useState<string | null>(null)
+  const explicar = (msg: string, queHacia: string) => {
+    if (/No puedes cancelar un paseo/i.test(msg)) {
+      return `${queHacia}: uno de los paseos de ese paquete ya empezó o ya se completó, y por eso no se puede cancelar completo.`
+    }
+    if (/row-level security|permission denied|JWT|not authenticated/i.test(msg)) {
+      return `${queHacia}: tu sesión ya venció. Vuelve a entrar y repite el cambio.`
+    }
+    return `${queHacia}: ${msg}`
+  }
+
   const updateStatus = async (id: string, status: string) => {
     setUpdating(id)
     const supabase = createClient()
@@ -1123,6 +1242,11 @@ export function AdminPanel({
       ? await query.eq("package_id", r!.package_id!).neq("status", "completada")
       : await query.eq("id", id)
     setUpdating(null)
+    if (error) {
+      setAvisoError(explicar(error.message, "No se pudo cambiar el estado del paseo"))
+      return
+    }
+    setAvisoError(null)
     if (!error) {
       setReservations((prev) =>
         prev.map((x) =>
@@ -1443,6 +1567,21 @@ export function AdminPanel({
             Contrato
           </button>
         </div>
+
+        {/* Cualquier acción que falle aterriza aquí. Pegado arriba y en rojo:
+            si se escondiera dentro de una tarjeta, Endy no lo vería. */}
+        {avisoError && (
+          <div className="sticky top-2 z-40 mt-4 flex items-start gap-3 rounded-2xl border-2 border-destructive bg-destructive/10 px-4 py-3">
+            <span className="text-lg leading-none">⚠️</span>
+            <p className="flex-1 text-sm font-bold text-destructive">{avisoError}</p>
+            <button
+              onClick={() => setAvisoError(null)}
+              className="text-sm font-bold text-destructive underline"
+            >
+              Cerrar
+            </button>
+          </div>
+        )}
 
         {/* Vista tabla */}
         {view === "tabla" && (
@@ -2282,6 +2421,15 @@ export function AdminPanel({
                               Pedirle que firme
                             </button>
                           )}
+                          {firmaMsg?.id === u.id && (
+                            <span
+                              className={`text-xs font-bold ${
+                                firmaMsg.ok ? "text-emerald-700" : "text-destructive"
+                              }`}
+                            >
+                              {firmaMsg.texto}
+                            </span>
+                          )}
                         </div>
                       </div>
                     )
@@ -2514,6 +2662,11 @@ export function AdminPanel({
               </div>
 
               {waLoading && !waStatus && <p className="mt-5 text-sm text-muted-foreground">Revisando la conexión…</p>}
+              {waError && !waLoading && (
+                <p className="mt-5 rounded-2xl border-2 border-destructive bg-destructive/10 px-4 py-3 text-sm font-bold text-destructive">
+                  {waError}
+                </p>
+              )}
 
               {waStatus && (
                 <div
@@ -2611,8 +2764,14 @@ export function AdminPanel({
               </div>
 
               {convs.length === 0 ? (
-                <p className="mt-5 rounded-2xl bg-secondary/40 px-4 py-6 text-center text-sm text-muted-foreground">
-                  Todavía no hay mensajes. Cuando un cliente conteste un WhatsApp, aparecerá aquí.
+                <p
+                  className={`mt-5 rounded-2xl px-4 py-6 text-center text-sm ${
+                    convsError
+                      ? "border-2 border-destructive bg-destructive/10 font-bold text-destructive"
+                      : "bg-secondary/40 text-muted-foreground"
+                  }`}
+                >
+                  {convsError ?? "Todavía no hay mensajes. Cuando un cliente conteste un WhatsApp, aparecerá aquí."}
                 </p>
               ) : (
                 <div className="mt-5 space-y-3">
@@ -2696,7 +2855,9 @@ export function AdminPanel({
                   placeholder="6141234567"
                   className="w-48"
                 />
-                <Button onClick={sendWaTest} className="rounded-full font-bold">Enviar prueba</Button>
+                <Button onClick={sendWaTest} disabled={waTestEnviando} className="rounded-full font-bold">
+                  {waTestEnviando ? "Mandando…" : "Enviar prueba"}
+                </Button>
               </div>
               {waTestMsg && (
                 <p className="mt-3 rounded-xl bg-secondary/50 px-4 py-3 text-sm font-semibold">{waTestMsg}</p>

@@ -2,8 +2,15 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { BuscandoClient } from "./buscando-client"
 
-export default async function BuscandoPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function BuscandoPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ sinFoto?: string }>
+}) {
   const { id } = await params
+  const { sinFoto } = await searchParams
   const supabase = await createClient()
   const {
     data: { user },
@@ -30,5 +37,10 @@ export default async function BuscandoPage({ params }: { params: Promise<{ id: s
     walkerName = walker?.full_name ?? null
   }
 
-  return <BuscandoClient reservation={{ ...reservation, walker_name: walkerName }} />
+  return (
+    <BuscandoClient
+      reservation={{ ...reservation, walker_name: walkerName }}
+      avisoFoto={sinFoto ?? null}
+    />
+  )
 }

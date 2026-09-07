@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
@@ -81,6 +81,20 @@ export function PanelClient({
   const [privacidadAbierta, setPrivacidadAbierta] = useState(false)
   /** Cómo pedir el rastreo: viene incluido pero se activa a solicitud */
   const [gpsAbierto, setGpsAbierto] = useState(false)
+  /** Si el registro no pudo guardar la identificación, /signup lo manda aquí
+   *  con ?sinINE=motivo para poder decírselo en vez de callarlo. */
+  const [falloAlRegistrarse, setFalloAlRegistrarse] = useState<string | null>(null)
+  useEffect(() => {
+    const motivo = new URLSearchParams(window.location.search).get("sinINE")
+    if (motivo) {
+      setFalloAlRegistrarse(motivo)
+      // Se limpia la URL para que no reaparezca al recargar
+      window.history.replaceState({}, "", window.location.pathname)
+    }
+  }, [])
+
+  /** Por qué no se pudo registrar la aceptación del contrato. */
+  const [errorContrato, setErrorContrato] = useState<string | null>(null)
   const [ineArchivo, setIneArchivo] = useState<File | null>(null)
   const [ineSubiendo, setIneSubiendo] = useState(false)
   const [ineMsg, setIneMsg] = useState<string | null>(null)
@@ -116,6 +130,25 @@ export function PanelClient({
   const isWalker = role === "paseador"
   const isAdmin = role === "admin"
 
+  /** Qué salió mal en la última acción, y en qué paseo, para pintarlo AHÍ. */
+  const [errorDeAccion, setErrorDeAccion] = useState<{ id: string; msg: string } | null>(null)
+
+  /**
+   * Traduce el error de Postgres a algo que el dueño entienda.
+   * El trigger guard_reservation_update aborta el UPDATE completo si UNA fila
+   * del paquete ya empezó — decirle "revise su internet" lo manda a perseguir
+   * un problema que no tiene.
+   */
+  const motivoLegible = (msg: string) => {
+    if (/No puedes cancelar un paseo/i.test(msg)) {
+      return "No se puede cancelar: uno de los paseos de este paquete ya empezó o ya se completó. Escríbanos por WhatsApp al 614 594 8513 y lo vemos."
+    }
+    if (/row-level security|permission denied|JWT|not authenticated/i.test(msg)) {
+      return "Su sesión ya venció. Vuelva a entrar y con eso se arregla."
+    }
+    return "No se pudo guardar el cambio. Revise su internet e inténtelo otra vez. Si sigue igual, escríbanos por WhatsApp al 614 594 8513."
+  }
+
   const updateStatus = async (id: string, status: string): Promise<boolean> => {
     setUpdating(id)
     const supabase = createClient()
@@ -128,6 +161,7 @@ export function PanelClient({
       : await query.eq("id", id)
     setUpdating(null)
     if (!error) {
+      setErrorDeAccion(null)
       setReservations((prev) =>
         prev.map((r) =>
           (target?.package_id ? r.package_id === target.package_id && r.status !== "completada" : r.id === id)
@@ -137,6 +171,9 @@ export function PanelClient({
       )
       return true
     }
+    // Antes esto devolvía false y nadie lo leía: la tarjeta se quedaba igual,
+    // el botón volvía a habilitarse y el dueño creía que estaba roto.
+    setErrorDeAccion({ id, msg: motivoLegible(error.message) })
     return false
   }
 
@@ -149,7 +186,11 @@ export function PanelClient({
     const { error } = target?.package_id
       ? await query.eq("package_id", target.package_id)
       : await query.eq("id", id)
-    if (error) { alert(`Error: ${error.message}`); return }
+    if (error) {
+      setErrorDeAccion({ id, msg: motivoLegible(error.message) })
+      return
+    }
+    setErrorDeAccion(null)
     setReservations((prev) =>
       prev.filter((r) => (target?.package_id ? r.package_id !== target.package_id : r.id !== id)),
     )
@@ -298,8 +339,11 @@ export function PanelClient({
                   onClick={() => setContratoAbierto(true)}
                   className="mt-3 rounded-full bg-amber-500 font-bold text-white hover:bg-amber-600"
                 >
-                  Leerlo y aceptarlo
+                  {errorContrato ? "Intentarlo otra vez" : "Leerlo y aceptarlo"}
                 </Button>
+                {errorContrato && (
+                  <p className="mt-2 text-sm font-bold text-destructive">{errorContrato}</p>
+                )}
               </div>
             )}
 
@@ -311,6 +355,14 @@ export function PanelClient({
                 <p className="font-display text-lg font-extrabold text-[#0d3333]">
                   Nos falta su identificación
                 </p>
+                {/* Viene de /signup: adjuntó la foto al registrarse pero no
+                    subió. Sin esto se quedaba creyendo que ya la había dado. */}
+                {falloAlRegistrarse && (
+                  <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+                    Al registrarse adjuntó una foto, pero no se alcanzó a guardar ({falloAlRegistrarse}). Vuelva a
+                    subirla aquí, es rapidito.
+                  </p>
+                )}
                 <p className="mt-1 text-sm leading-relaxed text-[#5a8080]">
                   Suba una foto de su INE, pasaporte o licencia. Con ella dejamos constancia de quién nos confía a
                   su perrito, tal como dice el contrato que aceptó. <b>Es privada</b>: solo la ve el equipo de
@@ -660,6 +712,14 @@ export function PanelClient({
                       )}
                     </div>
 
+                    {/* Si algo falló en ESTE paseo, se dice aquí mismo. Antes el
+                        error se perdía y la tarjeta se quedaba igualita. */}
+                    {errorDeAccion?.id === r.id && (
+                      <p className="mt-2 rounded-xl bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive">
+                        {errorDeAccion.msg}
+                      </p>
+                    )}
+
                     {/* Cambiar status: admin (todos) y paseador (solo en sus propios) */}
                     {(isAdmin || (isWalker && isMyJale)) && (
                       <div className="flex flex-wrap gap-2 border-t border-[#e0f0ee] pt-3">
@@ -717,11 +777,23 @@ export function PanelClient({
           // Solo se registra si de verdad faltaba: si ya estaba al día, abrir
           // el contrato para leerlo no debe generar una firma nueva.
           if (!contrato?.debeRefirmar) return
+          setErrorContrato(null)
           try {
-            await fetch("/api/aceptar-contrato", { method: "POST" })
+            // fetch NO truena con 401 ni con 500: hay que mirar res.ok a mano.
+            // Sin esto, la firma no se guardaba, el aviso amarillo seguía ahí
+            // y el dueño lo aceptaba una y otra vez sin entender por qué.
+            const res = await fetch("/api/aceptar-contrato", { method: "POST" })
+            if (!res.ok) {
+              const j = await res.json().catch(() => ({}))
+              throw new Error(j?.error ?? `HTTP ${res.status}`)
+            }
             router.refresh()
           } catch (e) {
-            console.warn("[panel] no se registró la aceptación:", e)
+            setErrorContrato(
+              e instanceof Error && /Inicia sesión/i.test(e.message)
+                ? "Su sesión ya venció. Vuelva a entrar y acepte el contrato otra vez."
+                : "No se pudo registrar su aceptación. Revise su internet e inténtelo otra vez.",
+            )
           }
         }}
       />

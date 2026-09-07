@@ -74,6 +74,14 @@ function LoginForm() {
             {loading ? "Entrando..." : "Iniciar sesión"}
           </Button>
 
+          {/* Sin esto, quien olvidaba su contraseña se quedaba fuera para
+              siempre: tampoco podía volver a registrarse con el mismo correo. */}
+          <p className="text-center text-sm">
+            <Link href="/olvide" className="font-bold text-primary underline">
+              ¿Olvidaste tu contraseña?
+            </Link>
+          </p>
+
           <p className="text-center text-sm text-muted-foreground">
             ¿No tienes cuenta?{" "}
             <Link href="/signup" className="font-bold text-primary underline">

@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { ArrowLeft, Plus, Edit, Trash2, Dog as DogIcon, Save, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -50,11 +51,38 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
   const [draft, setDraft] = useState(EMPTY_DRAFT)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
+  /** Para llevar la pantalla al formulario cuando se edita desde abajo. */
+  const formRef = useRef<HTMLDivElement | null>(null)
+
+  /**
+   * Postgres contesta en inglés y con jerga. "new row violates row-level
+   * security policy for table dogs" no le dice nada a un dueño.
+   */
+  const motivoLegible = (msg: string) => {
+    if (/row-level security|permission denied|JWT|not authenticated/i.test(msg)) {
+      return "Su sesión ya venció. Vuelva a entrar y guarde otra vez."
+    }
+    if (/check constraint/i.test(msg) && /size/i.test(msg)) {
+      return "Falta elegir el tamaño del perrito."
+    }
+    if (/violates check constraint/i.test(msg)) {
+      return "Falta algún dato del perrito o quedó mal escrito. Revise el formulario."
+    }
+    if (/duplicate key/i.test(msg)) return "Ya tiene un perrito registrado con ese nombre."
+    return "No se pudo guardar. Revise su internet e inténtelo otra vez."
+  }
 
   const startNew = () => {
     setEditingId("new")
     setDraft(EMPTY_DRAFT)
     setError(null)
+  }
+
+  /** El formulario vive ARRIBA de la lista: si se edita un perro de más abajo
+   *  nace fuera de pantalla y parece que el lápiz no hizo nada. */
+  const irAlFormulario = () => {
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60)
   }
 
   const startEdit = (d: Dog) => {
@@ -115,9 +143,12 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
     if (editingId === "new") {
       const { data, error: err } = await supabase.from("dogs").insert(payload).select().single()
       setSaving(false)
-      if (err) return setError(err.message)
+      if (err) return setError(motivoLegible(err.message))
       setDogs((prev) => [data as Dog, ...prev])
       cancel()
+      // La lista de verdad la trae el server component: sin esto, salir y
+      // volver a entrar enseñaba la lista vieja.
+      router.refresh()
     } else {
       const { data, error: err } = await supabase
         .from("dogs")
@@ -126,9 +157,10 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
         .select()
         .single()
       setSaving(false)
-      if (err) return setError(err.message)
+      if (err) return setError(motivoLegible(err.message))
       setDogs((prev) => prev.map((d) => (d.id === editingId ? (data as Dog) : d)))
       cancel()
+      router.refresh()
     }
   }
 
@@ -136,8 +168,9 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
     if (!confirm("¿Eliminar este perrito de tu lista?")) return
     const supabase = createClient()
     const { error: err } = await supabase.from("dogs").delete().eq("id", id)
-    if (err) return alert(err.message)
+    if (err) return setError(motivoLegible(err.message))
     setDogs((prev) => prev.filter((d) => d.id !== id))
+    router.refresh()
   }
 
   return (
@@ -157,7 +190,7 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
               </p>
             </div>
             {editingId === null && (
-              <Button onClick={startNew} className="rounded-full font-bold">
+              <Button onClick={() => { startNew(); irAlFormulario() }} className="rounded-full font-bold">
                 <Plus className="h-4 w-4" />
                 Agregar perro
               </Button>
@@ -166,7 +199,7 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
 
           {/* Formulario nuevo/edit */}
           {editingId && (
-            <div className="mb-6 rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <div ref={formRef} className="mb-6 rounded-3xl border border-border bg-card p-6 shadow-sm">
               <h2 className="font-display text-xl font-extrabold">
                 {editingId === "new" ? "Nuevo perrito" : "Editar perrito"}
               </h2>
@@ -274,7 +307,7 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
               <DogIcon className="mx-auto mb-4 h-10 w-10 text-primary" />
               <h3 className="font-display text-xl font-extrabold">Aún no tienes perritos guardados.</h3>
               <p className="mt-1 text-sm text-muted-foreground">Agrega uno para reservar paseos rápido.</p>
-              <Button onClick={startNew} className="mt-6 rounded-full font-bold">
+              <Button onClick={() => { startNew(); irAlFormulario() }} className="mt-6 rounded-full font-bold">
                 <Plus className="h-4 w-4" />
                 Agregar mi primer perrito
               </Button>
@@ -301,7 +334,7 @@ export function MisPerrosClient({ dogs: initial, userId }: { dogs: Dog[]; userId
                     )}
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => startEdit(d)} className="rounded-full">
+                    <Button variant="ghost" size="icon" onClick={() => { startEdit(d); irAlFormulario() }} className="rounded-full">
                       <Edit className="h-4 w-4" />
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => remove(d.id)} className="rounded-full text-destructive">

@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { ReservarClient } from "./reservar-client"
+import { preciosDe } from "@/lib/precios"
+import { ciudadSegura } from "@/lib/ciudades"
 
 export type SavedDog = {
   id: string
@@ -32,6 +34,14 @@ export default async function ReservarPage({ searchParams }: { searchParams: Sea
     redirect(`/signup?role=dueno&redirectTo=/reservar${qs.toString() ? `?${qs.toString()}` : ""}`)
   }
 
+  // El precio que ve el cliente TIENE que salir de donde sale el que se le
+  // cobra: la tabla `precios` de SU ciudad, la misma que lee /api/crear-reserva.
+  // Mientras esta pantalla leía la matriz del código, el día que Endy subiera
+  // un precio desde su panel el cliente habría visto uno y pagado otro.
+  const { data: perfil } = await supabase.from("profiles").select("city").eq("id", user.id).maybeSingle()
+  const ciudad = ciudadSegura(perfil?.city)
+  const tablaPrecios = await preciosDe(ciudad)
+
   // Traer los perros guardados del dueño para selección rápida
   const { data: savedDogs } = await supabase
     .from("dogs")
@@ -45,6 +55,7 @@ export default async function ReservarPage({ searchParams }: { searchParams: Sea
       initialDogs={Number(params.dogs ?? 1)}
       userEmail={user.email ?? ""}
       savedDogs={(savedDogs ?? []) as SavedDog[]}
+      tablaPrecios={tablaPrecios}
     />
   )
 }

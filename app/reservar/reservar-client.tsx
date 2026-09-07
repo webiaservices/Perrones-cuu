@@ -17,6 +17,7 @@ import { SiteFooter } from "@/components/site-footer"
 import { LogoCircle } from "@/components/logo-circle"
 import { createClient } from "@/lib/supabase/client"
 import { PLANS, ZONES, DOG_SIZES, priceForDogs } from "@/lib/constants"
+import type { TablaPrecios } from "@/lib/precios"
 import { cn } from "@/lib/utils"
 import type { SavedDog } from "./page"
 
@@ -33,11 +34,16 @@ export function ReservarClient({
   initialDogs,
   userEmail,
   savedDogs,
+  tablaPrecios,
 }: {
   planId: string
   initialDogs: number
   userEmail: string
   savedDogs: SavedDog[]
+  /** Precios de LA CIUDAD DEL CLIENTE, leídos de la base igual que los lee
+   *  /api/crear-reserva. Van por prop y no por constante para que lo que ve
+   *  y lo que paga sean el mismo número. */
+  tablaPrecios: TablaPrecios
 }) {
   const router = useRouter()
   const supabase = createClient()
@@ -110,10 +116,26 @@ export function ReservarClient({
       .select()
       .single()
     setSavingNewDog(false)
-    if (err) return alert(err.message)
+    if (err) {
+      return alert(
+        /row-level security|permission denied|JWT/i.test(err.message)
+          ? "Tu sesión expiró. Vuelve a iniciar sesión."
+          : "No se pudo guardar el perrito. Revisa tu internet e inténtalo otra vez.",
+      )
+    }
     const dog = data as SavedDog
     setAllDogs((prev) => [dog, ...prev])
-    setSelectedDogIds((prev) => [...prev, dog.id])
+    // El tope de 3 vale igual aquí: antes este camino lo brincaba y se llegaba
+    // al paso 3 con 4 perros seleccionados y un precio de 3.
+    setSelectedDogIds((prev) => {
+      if (prev.length >= 3) {
+        setError(
+          `${dog.name} quedó guardado en tus perritos, pero ya tienes 3 seleccionados (el máximo por paseo). Quita uno si quieres llevarlo a él.`,
+        )
+        return prev
+      }
+      return [...prev, dog.id]
+    })
     setNewDog({ name: "", breed: "", size: "mediano", special_needs: "", behavior: "", illness: "", long_distance: false })
     setShowAddDog(false)
   }
@@ -147,7 +169,11 @@ export function ReservarClient({
   /** Foto de la fachada: privada, la ve solo el paseador ya asignado */
   const [fachada, setFachada] = useState<File | null>(null)
 
-  const price = priceForDogs(initialPlan, dogsCount)
+  // El precio de la lista de su ciudad; la matriz del código es solo la red
+  // por si la tabla `precios` todavía no existe.
+  const price =
+    tablaPrecios?.[initialPlan.name]?.[Math.min(3, Math.max(1, dogsCount)) as 1 | 2 | 3] ??
+    priceForDogs(initialPlan, dogsCount)
 
   const canAdvance1 = selectedDogIds.length > 0
   const slotsValid = slots.every((s) => s.date && s.startHour)
@@ -163,6 +189,18 @@ export function ReservarClient({
       seen.add(s.date)
       if (new Date(`${s.date}T${s.startHour}:00`).getTime() < Date.now() - 5 * 60 * 1000) {
         return "Esa fecha y hora ya pasaron. Elige un horario futuro."
+      }
+    }
+    // MISMA regla que /api/crear-reserva: un paquete es de UNA semana. Antes
+    // solo la revisaba el servidor, así que el cliente llenaba los 5 días, la
+    // dirección y los datos del perro, y hasta el botón final le decía que no.
+    if (slots.length > 1) {
+      const fechas = slots
+        .map((s) => new Date(`${s.date}T${s.startHour}:00`).getTime())
+        .sort((a, b) => a - b)
+      const SIETE_DIAS = 7 * 24 * 60 * 60 * 1000
+      if (fechas[fechas.length - 1] - fechas[0] > SIETE_DIAS) {
+        return `Los ${slots.length} paseos del paquete tienen que caber en una misma semana: elige fechas dentro de 7 días a partir del primero. Si los quieres más separados, agenda otro paquete aparte.`
       }
     }
     return null
@@ -214,15 +252,26 @@ export function ReservarClient({
 
       // La foto de la casa se sube después de crear la reserva, porque hasta
       // aquí no existe el id. Si falla, la reserva NO se cae: es opcional.
+      // La reserva SÍ queda aunque la foto falle (es opcional), pero hay que
+      // decírselo: si no, el cliente cree que el paseador ya tiene la foto de
+      // su casa y no la tiene. El aviso viaja en la URL porque enseguida se
+      // redirige a la pantalla de "buscando paseador".
+      let fachadaFallo: string | null = null
       if (fachada) {
         try {
           const fd = new FormData()
           fd.append("reservationId", firstId)
           fd.append("file", fachada)
           const up = await fetch("/api/subir-fachada", { method: "POST", body: fd })
-          if (!up.ok) console.warn("[reservar] fachada no guardada:", (await up.json().catch(() => ({})))?.error)
-        } catch (err) {
-          console.warn("[reservar] fachada no guardada:", err)
+          if (!up.ok) {
+            const j = await up.json().catch(() => ({}))
+            // La reserva SÍ quedó: la foto es opcional. Pero hay que decírselo,
+            // porque si no el cliente cree que el paseador ya tiene la foto de
+            // su casa y no la tiene.
+            fachadaFallo = j?.error ?? "no se pudo guardar"
+          }
+        } catch {
+          fachadaFallo = "se cayó la conexión al subirla"
         }
       }
 
@@ -248,7 +297,9 @@ export function ReservarClient({
         body: JSON.stringify({ reservationId: firstId, kind: "reservada" }),
       }).catch((err) => console.warn("Notify cliente failed:", err))
 
-      router.push(`/reservar/buscando/${firstId}`)
+      router.push(
+        `/reservar/buscando/${firstId}${fachadaFallo ? `?sinFoto=${encodeURIComponent(fachadaFallo)}` : ""}`,
+      )
       router.refresh()
     } catch (e: unknown) {
       // Extrae el mensaje real ya sea de Error o de un objeto tipo PostgrestError
@@ -455,6 +506,12 @@ export function ReservarClient({
                       <Label>
                         Elige {walksCount} días de paseo *
                       </Label>
+                      {/* La regla la exige el servidor; decirla ANTES evita que
+                          el cliente llene todo y hasta el final le digan que no. */}
+                      <p className="text-xs text-muted-foreground">
+                        Los {walksCount} días tienen que caber en <b>una misma semana</b> (dentro de 7 días a partir
+                        del primero). Si los quiere más separados, se agenda otro paquete aparte.
+                      </p>
                       <div className="rounded-2xl border border-border p-3">
                         <Calendar
                           mode="multiple"

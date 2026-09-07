@@ -22,7 +22,14 @@ type Reservation = {
   walker_name: string | null
 }
 
-export function BuscandoClient({ reservation: initial }: { reservation: Reservation }) {
+export function BuscandoClient({
+  reservation: initial,
+  avisoFoto = null,
+}: {
+  reservation: Reservation
+  /** La reserva quedó, pero la foto de la fachada no se pudo guardar. */
+  avisoFoto?: string | null
+}) {
   const supabase = createClient()
   const [reservation, setReservation] = useState(initial)
 
@@ -65,6 +72,19 @@ export function BuscandoClient({ reservation: initial }: { reservation: Reservat
 
       <main className="flex-1 px-4 py-12 md:py-20">
         <div className="mx-auto max-w-xl">
+          {avisoFoto && (
+            <div className="mb-5 rounded-2xl border-2 border-amber-400 bg-amber-50 p-4">
+              <p className="text-sm font-bold text-amber-950">Su paseo sí quedó agendado.</p>
+              <p className="mt-1 text-sm leading-relaxed text-amber-900">
+                Lo único que no se pudo guardar fue la <b>foto de la fachada</b> ({avisoFoto}). No es obligatoria,
+                pero ayuda a que el paseador encuentre su casa a la primera. Si quiere, mándenosla por WhatsApp al{" "}
+                <a href="https://wa.me/526145948513" target="_blank" rel="noreferrer" className="font-bold underline">
+                  614 594 8513
+                </a>
+                .
+              </p>
+            </div>
+          )}
           <div className="rounded-3xl border border-border bg-card p-8 text-center shadow-sm md:p-12">
             <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center">
               {confirmed || completed ? (

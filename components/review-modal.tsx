@@ -23,6 +23,8 @@ export function ReviewModal({
   const [comment, setComment] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Ya se mandó: se enseña el acuse en vez de cerrar de golpe. */
+  const [enviada, setEnviada] = useState(false)
 
   const submit = async () => {
     setError(null)
@@ -37,17 +39,33 @@ export function ReviewModal({
     })
     setLoading(false)
     if (err) {
-      setError(err.message)
+      // El mensaje de Postgres viene en inglés y con jerga ("new row violates
+      // row-level security policy"): a un dueño no le dice nada.
+      setError(
+        /row-level security|permission denied|JWT/i.test(err.message)
+          ? "Su sesión ya venció. Vuelva a entrar y publique su reseña otra vez."
+          : /duplicate key/i.test(err.message)
+            ? "Ya había dejado una reseña de este paseo. ¡Gracias!"
+            : "No se pudo publicar. Revise su internet e inténtelo otra vez.",
+      )
       return
     }
+    // Las reseñas nacen con approved = false y Endy las aprueba desde su panel.
+    // Antes el modal se cerraba en silencio, el dueño no veía su reseña en
+    // ningún lado y creía que se había perdido.
+    setEnviada(true)
     onSaved?.()
+  }
+
+  const cerrar = () => {
     onOpenChange(false)
+    setEnviada(false)
     setRating(5)
     setComment("")
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => (v ? onOpenChange(true) : cerrar())}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="font-display text-2xl">¿Cómo estuvo el paseo?</DialogTitle>
@@ -56,6 +74,21 @@ export function ReviewModal({
           </DialogDescription>
         </DialogHeader>
 
+        {enviada ? (
+          /* Acuse. Sin esto el dueño publicaba, el modal se cerraba y su reseña
+             no aparecía en ningún lado — porque falta que Endy la apruebe. */
+          <div className="space-y-4 py-4 text-center">
+            <p className="text-4xl">⭐</p>
+            <p className="font-display text-xl font-extrabold">¡Gracias por su reseña!</p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Ya nos llegó. La revisamos antes de publicarla en la página, así que tarda un poco en aparecer. No
+              tiene que volver a mandarla.
+            </p>
+            <Button onClick={cerrar} className="rounded-full font-bold">
+              Cerrar
+            </Button>
+          </div>
+        ) : (
         <div className="space-y-5 py-2">
           {/* Estrellas */}
           <div className="flex items-center justify-center gap-1">
@@ -91,7 +124,7 @@ export function ReviewModal({
           )}
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading} className="rounded-full">
+            <Button variant="outline" onClick={cerrar} disabled={loading} className="rounded-full">
               Cancelar
             </Button>
             <Button onClick={submit} disabled={loading} className="rounded-full font-bold">
@@ -99,6 +132,7 @@ export function ReviewModal({
             </Button>
           </div>
         </div>
+        )}
       </DialogContent>
     </Dialog>
   )
