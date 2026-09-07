@@ -29,7 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { createClient } from "@/lib/supabase/client"
-import { walkerPayoutFor, ZONES, WEEKDAYS } from "@/lib/constants"
+import { walkerPayoutFor, ZONES } from "@/lib/constants"
 import { ManualPaseadores } from "@/components/manual-paseadores"
 import { MANUAL_VERSION } from "@/lib/manual-paseadores"
 
@@ -96,7 +96,6 @@ export function WalkerPanel({
   reservations: initial,
   ownerMap,
   initialZone,
-  initialAvailableHours,
   dogMap,
   manualAceptadoEn,
   manualVersionAceptada,
@@ -107,7 +106,6 @@ export function WalkerPanel({
   reservations: WalkerReservation[]
   ownerMap: Record<string, { name: string | null; phone: string | null }>
   initialZone: string | null
-  initialAvailableHours: Record<string, boolean>
   dogMap?: Record<string, { has_bitten: boolean | null; aggression_details: string | null }>
   manualAceptadoEn: string | null
   manualVersionAceptada: string | null
@@ -166,11 +164,11 @@ export function WalkerPanel({
   const initialZoneIsCustom = !!initialZone && !ZONES.includes(initialZone)
   const [zone, setZone] = useState(initialZoneIsCustom ? "Otra" : (initialZone ?? ""))
   const [zoneOther, setZoneOther] = useState(initialZoneIsCustom ? initialZone! : "")
-  const [days, setDays] = useState<Record<string, boolean>>(initialAvailableHours)
+
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileMsg, setProfileMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null)
 
-  const toggleDay = (d: string) => setDays((prev) => ({ ...prev, [d]: !prev[d] }))
+
 
   const saveProfile = async () => {
     setProfileMsg(null)
@@ -185,7 +183,11 @@ export function WalkerPanel({
     const supabase = createClient()
     const { error } = await supabase
       .from("profiles")
-      .update({ zone: (zone === "Otra" ? (zoneOther || null) : (zone || null)), available_hours: days })
+      // Ya no se guardan "días disponibles": se pedían, se guardaban y NADIE los
+      // leía — los avisos de vacantes salen por zona, no por día. La columna
+      // available_hours se queda en la base con lo que ya tenía (borrarla sería
+      // tirar datos por una pantalla que quitamos), pero nadie la escribe.
+      .update({ zone: zone === "Otra" ? zoneOther || null : zone || null })
       .eq("id", userId)
     setSavingProfile(false)
     if (error) {
@@ -930,20 +932,6 @@ export function WalkerPanel({
               </p>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-semibold">Días disponibles</label>
-              <div className="flex flex-wrap gap-3">
-                {WEEKDAYS.map((d) => (
-                  <label
-                    key={d.value}
-                    className="flex cursor-pointer items-center gap-2 rounded-full border border-border bg-secondary/40 px-3 py-1.5 text-sm font-semibold transition-colors hover:bg-secondary"
-                  >
-                    <Checkbox checked={!!days[d.value]} onCheckedChange={() => toggleDay(d.value)} />
-                    {d.label}
-                  </label>
-                ))}
-              </div>
-            </div>
           </div>
 
           {profileMsg && (

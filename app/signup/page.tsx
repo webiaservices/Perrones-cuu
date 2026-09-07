@@ -16,7 +16,7 @@ import { LogoCircle } from "@/components/logo-circle"
 import { CIUDADES, zonasDe, type CiudadId } from "@/lib/ciudades"
 import { ContractModal } from "@/components/contract-modal"
 import { PrivacidadModal } from "@/components/privacidad-modal"
-import { ZONES, WEEKDAYS } from "@/lib/constants"
+import { ZONES } from "@/lib/constants"
 import { CLIENT_CONTRACT, WALKER_CONTRACT, CONTRACT_VERSION } from "@/lib/contract-text"
 import { cn } from "@/lib/utils"
 
@@ -43,7 +43,6 @@ function SignUpForm() {
   const [password, setPassword] = useState("")
   const [zone, setZone] = useState("")
   const [zoneOther, setZoneOther] = useState("")
-  const [days, setDays] = useState<string[]>([])
   const [accepted, setAccepted] = useState(false)
   /** Ciudad: define precios, colonias y si el registro de paseadores está abierto */
   const [city, setCity] = useState<CiudadId>("chihuahua")
@@ -86,9 +85,6 @@ function SignUpForm() {
   const contractText = docVigente?.texto ?? (role === "paseador" ? WALKER_CONTRACT : CLIENT_CONTRACT)
   const contractVersion = docVigente?.version ?? CONTRACT_VERSION
   const contractType = role === "paseador" ? "paseador" : "cliente"
-
-  const toggleDay = (d: string) =>
-    setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
 
   useEffect(() => {
     const supabase = createClient()
@@ -167,11 +163,6 @@ function SignUpForm() {
 
     setLoading(true)
     const supabase = createClient()
-    const availableHours = WEEKDAYS.reduce<Record<string, boolean>>((acc, d) => {
-      acc[d.value] = days.includes(d.value)
-      return acc
-    }, {})
-
     try {
       const { data, error: signErr } = await supabase.auth.signUp({
         email,
@@ -184,7 +175,6 @@ function SignUpForm() {
             role,
             zone: role === "paseador" ? (zone === "Otra" ? zoneOther : zone) : null,
             city,
-            available_hours: role === "paseador" ? availableHours : {},
             bank_name: role === "paseador" ? bankName : null,
             bank_clabe: role === "paseador" ? bankClabe : null,
             bank_account: role === "paseador" ? bankAccount : null,
@@ -423,29 +413,6 @@ function SignUpForm() {
                     required
                   />
                 )}
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label>Días disponibles</Label>
-                <div className="flex flex-wrap gap-2">
-                  {WEEKDAYS.map((d) => {
-                    const active = days.includes(d.value)
-                    return (
-                      <button
-                        type="button"
-                        key={d.value}
-                        onClick={() => toggleDay(d.value)}
-                        className={cn(
-                          "rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors",
-                          active
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border bg-background text-muted-foreground hover:border-primary/40",
-                        )}
-                      >
-                        {d.label}
-                      </button>
-                    )
-                  })}
-                </div>
               </div>
 
               {/* Fecha de nacimiento del paseador */}

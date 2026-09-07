@@ -114,7 +114,7 @@ export default async function PanelPage() {
     }
     const { data: walkerProfile } = await supabase
       .from("profiles")
-      .select("zone, available_hours, manual_accepted_at, manual_version")
+      .select("zone, manual_accepted_at, manual_version")
       .eq("id", user.id)
       .single()
     return (
@@ -125,7 +125,6 @@ export default async function PanelPage() {
         reservations={(reservations ?? []) as WalkerReservation[]}
         ownerMap={ownerMap}
         initialZone={walkerProfile?.zone ?? null}
-        initialAvailableHours={(walkerProfile?.available_hours ?? {}) as Record<string, boolean>}
         dogMap={dogMap}
         manualAceptadoEn={(walkerProfile?.manual_accepted_at as string | null) ?? null}
         manualVersionAceptada={(walkerProfile?.manual_version as string | null) ?? null}

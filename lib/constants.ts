@@ -41,16 +41,6 @@ export const DOG_SIZES: { value: DogSize; label: string }[] = [
   { value: "grande", label: "Grande" },
 ]
 
-export const WEEKDAYS = [
-  { value: "lun", label: "Lunes" },
-  { value: "mar", label: "Martes" },
-  { value: "mie", label: "Miércoles" },
-  { value: "jue", label: "Jueves" },
-  { value: "vie", label: "Viernes" },
-  { value: "sab", label: "Sábado" },
-  { value: "dom", label: "Domingo" },
-]
-
 // Precio base por 1 perro. Cada perro adicional suma 60% del precio base.
 export type Plan = {
   id: string

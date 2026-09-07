@@ -140,6 +140,14 @@ export async function registrarse({ nav, base, db, borrarCuenta, capturas }) {
     await pg.goto(`${base}/signup`, { waitUntil: "networkidle" })
     b.ok("Abre la página de registro")
 
+    // Tampoco en el alta de paseador: era lo mismo, pedir algo que nadie lee.
+    await pg.goto(`${base}/signup?role=paseador`, { waitUntil: "networkidle" })
+    await pg.waitForTimeout(1200)
+    ;/Días disponibles/i.test(await pg.locator("body").innerText())
+      ? b.falla("El registro de paseador sigue pidiendo días disponibles")
+      : b.ok("El registro de paseador ya no pide días disponibles")
+    await pg.goto(`${base}/signup`, { waitUntil: "networkidle" })
+
     await sinBotonesMuertos(pg, b, "Registro")
 
     await pg.fill("#fullName", "PRUEBA WEBIA - BORRAR").catch(() => {})
@@ -215,6 +223,30 @@ export async function panelDelPaseador({ nav, base, db, crearCuenta, borrarCuent
     ;/paseo/i.test(texto) ? b.ok("Ve su pantalla de paseos") : b.falla("Su panel salió vacío")
 
     await sinBotonesMuertos(pg, b, "Panel del paseador")
+
+    // "Días disponibles" se pedía, se guardaba y nadie lo leía: se quitó.
+    ;/Días disponibles/i.test(texto)
+      ? b.falla("Sigue saliendo \"Días disponibles\", que no lo usa nadie")
+      : b.ok("Ya no le pide días disponibles")
+
+    // Guardar el perfil sigue sirviendo (se tocó ese código al quitar los días)
+    const zonaNueva = "Campestre"
+    const selZona = pg.locator('button[role="combobox"]').first()
+    await clicHastaQueReaccione(pg, selZona, async () => (await pg.getByRole("option").count()) > 0)
+    await pg.getByRole("option", { name: zonaNueva, exact: true }).click().catch(async () => {
+      await pg.getByRole("option").first().click()
+    })
+    await pg.waitForTimeout(400)
+    await pg.getByRole("button", { name: /Guardar cambios/i }).click()
+    await pg.waitForTimeout(2500)
+    ;/Perfil actualizado/i.test(await pg.locator("body").innerText())
+      ? b.ok("Le dice que guardó su perfil")
+      : b.falla("Guardó el perfil sin decir nada")
+
+    const { data: perfilTras } = await db.from("profiles").select("zone").eq("id", cuenta.id).single()
+    perfilTras?.zone
+      ? b.ok("La zona quedó guardada en la base", perfilTras.zone)
+      : b.falla("Dijo que guardó pero la base sigue sin zona")
 
     await pg.screenshot({ path: `${capturas}/flujo-paseador.png` })
     errores.length === 0 ? b.ok("Sin errores de JavaScript") : b.falla("Errores de JavaScript", errores.slice(0, 3).join(" | "))
