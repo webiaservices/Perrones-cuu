@@ -15,11 +15,23 @@ import { createAdminClient } from "@/lib/supabase/admin"
  */
 
 const MAX_BYTES = 5 * 1024 * 1024 // 5 MB
+// heic/heif: es lo que manda el iPhone cuando el navegador NO convierte.
+// Ahora el input pide jpeg por nombre y iOS convierte solo, pero si algún
+// aparato se salta eso, mejor guardarla que rechazarla — Endy la va a abrir
+// desde una Mac o un iPhone, donde se ve bien.
 const TIPOS_OK: Record<string, string> = {
   "image/jpeg": "jpg",
+  "image/jpg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
+  "image/heic": "heic",
+  "image/heif": "heif",
   "application/pdf": "pdf",
+}
+
+/** Algunos Android mandan el archivo sin tipo. Se cae al nombre. */
+const POR_NOMBRE: Record<string, string> = {
+  jpg: "jpg", jpeg: "jpg", png: "png", webp: "webp", heic: "heic", heif: "heif", pdf: "pdf",
 }
 
 export async function POST(req: NextRequest) {
@@ -40,9 +52,13 @@ export async function POST(req: NextRequest) {
     if (file.size > MAX_BYTES) {
       return NextResponse.json({ error: "La imagen pesa más de 5 MB. Tómale una foto más ligera." }, { status: 400 })
     }
-    const ext = TIPOS_OK[file.type]
+    const porNombre = POR_NOMBRE[(file.name.split(".").pop() ?? "").toLowerCase()]
+    const ext = TIPOS_OK[file.type] ?? porNombre
     if (!ext) {
-      return NextResponse.json({ error: "Solo se aceptan fotos JPG, PNG, WEBP o PDF." }, { status: 400 })
+      return NextResponse.json(
+        { error: "Ese archivo no se puede abrir como foto. Manda una foto (JPG o PNG) o un PDF." },
+        { status: 400 },
+      )
     }
 
     const admin = createAdminClient()

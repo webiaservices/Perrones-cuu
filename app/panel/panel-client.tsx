@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, ArrowRight, LogOut, PawPrint, CalendarDays, Dog, MapPin, Clock, Check, X, Star, Navigation, ShieldCheck } from "lucide-react"
+import { ArrowLeft, ArrowRight, LogOut, PawPrint, CalendarDays, Dog, MapPin, Clock, Check, X, Star, Navigation, ShieldCheck, Camera } from "lucide-react"
 import { ReviewModal } from "@/components/review-modal"
 import { ContractModal } from "@/components/contract-modal"
 import { PrivacidadModal } from "@/components/privacidad-modal"
@@ -316,26 +316,65 @@ export function PanelClient({
                   su perrito, tal como dice el contrato que aceptó. <b>Es privada</b>: solo la ve el equipo de
                   Perrones Cuu, nunca los paseadores.
                 </p>
+                {/* La lista de tipos va explícita, NO "image/*": con el
+                    comodín el iPhone entrega la foto en HEIC y el servidor la
+                    rechaza. Nombrando jpeg, iOS la convierte solo. */}
                 <input
+                  id="ineArchivo"
                   type="file"
-                  accept="image/*"
-                  onChange={(e) => setIneArchivo(e.target.files?.[0] ?? null)}
-                  className="mt-3 block w-full text-sm"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  onChange={(e) => {
+                    setIneArchivo(e.target.files?.[0] ?? null)
+                    setIneMsg(null)
+                  }}
+                  className="sr-only"
                 />
                 <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <Button
-                    onClick={subirIdentificacion}
-                    disabled={!ineArchivo || ineSubiendo}
-                    className="rounded-full bg-[#3DCABD] font-bold text-white hover:bg-[#2ba89d]"
-                  >
-                    {ineSubiendo ? "Subiendo…" : "Subir identificación"}
-                  </Button>
+                  {/* Un solo botón, y NUNCA apagado. Antes decía "Subir
+                      identificación" y estaba deshabilitado hasta escoger el
+                      archivo: la gente le picaba, no pasaba nada, y creía que
+                      la página estaba rota. Ahora el botón primero abre el
+                      selector y hasta después sube.
+                      Es un <label>, no un onClick: así abre el selector sin
+                      JavaScript de por medio, que es lo que aguanta bien en
+                      los celulares. */}
+                  {!ineArchivo ? (
+                    <label
+                      htmlFor="ineArchivo"
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-[#3DCABD] px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#2ba89d]"
+                    >
+                      <Camera className="h-4 w-4" />
+                      Elegir la foto
+                    </label>
+                  ) : (
+                    <>
+                      <Button
+                        onClick={subirIdentificacion}
+                        disabled={ineSubiendo}
+                        className="rounded-full bg-[#3DCABD] font-bold text-white hover:bg-[#2ba89d]"
+                      >
+                        {ineSubiendo ? "Subiendo…" : "Subir identificación"}
+                      </Button>
+                      <label
+                        htmlFor="ineArchivo"
+                        className="cursor-pointer text-sm font-semibold text-[#5a8080] underline"
+                      >
+                        Elegir otra
+                      </label>
+                    </>
+                  )}
                   {ineMsg && (
                     <span className={`text-sm font-semibold ${ineMsg.startsWith("¡Listo") ? "text-[#2ba89d]" : "text-destructive"}`}>
                       {ineMsg}
                     </span>
                   )}
                 </div>
+                {ineArchivo && (
+                  <p className="mt-2 text-xs font-semibold text-[#2ba89d]">
+                    ✓ {ineArchivo.name} ({Math.round(ineArchivo.size / 1024)} KB) — ahora pique
+                    &ldquo;Subir identificación&rdquo;.
+                  </p>
+                )}
               </div>
             )}
 
