@@ -42,6 +42,7 @@ export async function subirIdentificacion({ nav, base, db, crearCuenta, borrarCu
 
     await pg.locator("text=Nos falta su identificación").waitFor({ timeout: 10000 })
     b.ok("Le piden la identificación")
+    await pg.screenshot({ path: `${capturas}/flujo-ine-1-antes.png` })
 
     await sinBotonesMuertos(pg, b, "Panel del cliente")
 
