@@ -28,6 +28,20 @@ export function SiteFooter() {
             <div>
               <p className="font-extrabold">{BRAND.name}</p>
               <p className="text-xs text-muted-foreground">© 2026 {BRAND.name} · Chihuahua, México</p>
+              {/* Identificación del negocio (LFPC art. 76 bis). Los datos que
+                  todavía no tenemos no se pintan; nunca se inventan. */}
+              {BRAND.legal.razonSocial && (
+                <p className="text-xs text-muted-foreground">{BRAND.legal.razonSocial}</p>
+              )}
+              {BRAND.legal.domicilio && (
+                <p className="text-xs text-muted-foreground">{BRAND.legal.domicilio}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {BRAND.telefono} ·{" "}
+                <a href={`mailto:${BRAND.email}`} className="hover:text-foreground">
+                  {BRAND.email}
+                </a>
+              </p>
             </div>
           </div>
 
@@ -54,7 +68,10 @@ export function SiteFooter() {
             </a>
           </div>
 
-          <div className="flex items-center gap-4 text-sm font-semibold">
+          <div className="flex flex-wrap items-center justify-center gap-4 text-sm font-semibold">
+            <Link href="/terminos" className="text-muted-foreground transition-colors hover:text-foreground">
+              Términos
+            </Link>
             <Link href="/privacidad" className="text-muted-foreground transition-colors hover:text-foreground">
               Privacidad
             </Link>

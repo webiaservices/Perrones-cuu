@@ -4,10 +4,25 @@ export const BRAND = {
   city: "Ciudad Chihuahua, Chih.",
   whatsapp: "526145948513",
   whatsappLink: "https://wa.me/526145948513?text=Hola%20Perrones",
+  telefono: "+52 614 594 8513",
+  email: "perronescuu@gmail.com",
+  horario: "Lunes a domingo, 8:00 a 20:00 h",
   social: {
     instagram: "https://instagram.com/perronescuu",
     facebook: "https://www.facebook.com/people/perrones-cuu/61586452477627/",
     tiktok: "https://tiktok.com/@perronescuu",
+  },
+  /**
+   * Datos de identificación del negocio. La Ley Federal de Protección al
+   * Consumidor (art. 76 bis) pide domicilio físico y teléfono a quien vende por
+   * internet. Los campos vacíos NO se pintan: más vale que falte el dato a que
+   * el sitio publique un domicilio inventado. En cuanto Endy los dé, se llenan
+   * aquí y aparecen solos en el pie y en los términos.
+   */
+  legal: {
+    razonSocial: "", // nombre de la persona física o moral que factura
+    rfc: "",
+    domicilio: "", // calle, número, colonia, C.P., ciudad
   },
 }
 

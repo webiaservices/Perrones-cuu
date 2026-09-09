@@ -425,10 +425,100 @@ export async function precioQueSeVeEsElQueSeCobra({ nav, base, db, crearCuenta, 
   return b.pasos
 }
 
+/**
+ * Lo que el sitio le promete al público tiene que ser verdad.
+ * Aquí no se prueba un botón: se prueba que no volvamos a publicar una reseña
+ * que nadie escribió ni un número que nadie contó. Es lo que sanciona PROFECO
+ * (LFPC art. 32) y lo que exige el art. 76 bis para vender por internet.
+ */
+export async function loQuePrometeElSitio({ nav, base, capturas }) {
+  const b = hacerBitacora("Lo que promete el sitio")
+  const ctx = await nav.newContext({ viewport: { width: 1280, height: 900 } })
+  const pg = await ctx.newPage()
+
+  // Nombres de los testimonios que alguna vez estuvieron inventados en el
+  // código. Si alguno reaparece, es que volvieron a entrar reseñas falsas.
+  const INVENTADOS = ["Lorena M.", "Rodrigo V.", "Fernanda Q.", "María G.", "Carlos R.", "Ana L."]
+
+  try {
+    await pg.goto(`${base}/`, { waitUntil: "networkidle" })
+    const inicio = await pg.locator("main").innerText()
+
+    const colados = INVENTADOS.filter((n) => inicio.includes(n))
+    if (colados.length) b.falla("Volvieron los testimonios inventados", colados.join(", "))
+    else b.ok("Ninguna reseña inventada en el inicio")
+
+    // El número del hero tiene que cuadrar con las reseñas que sí existen.
+    // Las tarjetas van duplicadas porque el carrusel repite la lista.
+    const tarjetas = (await pg.locator("#resenas figure").count()) / 2
+    const insignia = inicio.match(/([0-9]\.[0-9])\s*\((\d+) reseñas?\)/)
+    if (tarjetas === 0) {
+      if (insignia) b.falla("Presume calificación sin tener una sola reseña", insignia[0])
+      else if (/Todavía no tenemos reseñas publicadas/.test(inicio)) b.ok("Sin reseñas: lo dice en vez de inventarlas")
+      else b.falla("Sin reseñas y sin explicar por qué la sección está vacía")
+    } else if (!insignia) {
+      b.falla("Hay reseñas reales pero el hero no muestra la calificación")
+    } else if (Number(insignia[2]) !== tarjetas) {
+      b.falla("El hero presume más reseñas de las que hay", `dice ${insignia[2]}, hay ${tarjetas}`)
+    } else {
+      b.ok("La calificación del hero es la real", insignia[0])
+    }
+
+    // Las estrellas de cada tarjeta deben coincidir con su calificación
+    const estrellas = await pg.$$eval('#resenas figure div[aria-label*="estrellas"]', (ds) =>
+      ds.map((d) => ({
+        dice: Number((d.getAttribute("aria-label") || "").match(/\d/)?.[0] ?? 0),
+        llenas: d.querySelectorAll("svg.fill-primary").length,
+      })))
+    const infladas = estrellas.filter((e) => e.dice !== e.llenas)
+    if (infladas.length) b.falla("Se pintan más estrellas de las que puso el cliente", JSON.stringify(infladas[0]))
+    else b.ok(`Las estrellas son las que pusieron los clientes (${estrellas.length / 2 || 0} reseñas)`)
+
+    // Términos: tiene que llegarse desde el pie, sin buscarlo
+    const liga = pg.locator('footer a[href="/terminos"]')
+    if ((await liga.count()) === 0) {
+      b.falla("El pie no lleva a los términos")
+    } else {
+      await liga.first().click()
+      await pg.waitForURL((u) => u.pathname === "/terminos", { timeout: 10000 })
+      b.ok("Los términos se alcanzan desde el pie")
+
+      const t = await pg.locator("main").innerText()
+      // Lo que la ley pide que esté a la vista antes de contratar
+      const obligatorios = [
+        ["Cancelaciones y reembolsos", "cómo se cancela"],
+        ["transferencia", "cómo se paga"],
+        ["PROFECO", "a dónde reclamar"],
+        ["614 594 8513", "el teléfono"],
+        ["perronescuu@gmail.com", "el correo"],
+      ]
+      const faltan = obligatorios.filter(([txt]) => !t.includes(txt)).map(([, q]) => q)
+      if (faltan.length) b.falla("Los términos no dicen " + faltan.join(", "))
+      else b.ok("Los términos dicen cómo se paga, cómo se cancela y a dónde reclamar")
+
+      // Mientras no haya póliza que mostrar, no se promete seguro por escrito
+      if (/seguro|cobertura/i.test(t)) b.falla("Los términos prometen seguro sin póliza confirmada")
+      else b.ok("Los términos no prometen un seguro que no podemos comprobar")
+
+      if (/undefined|null/.test(t)) b.falla("Se coló un dato vacío en los términos")
+      else b.ok("Ningún hueco visible en los datos del negocio")
+    }
+
+    await sinBotonesMuertos(pg, b, "Términos")
+  } catch (e) {
+    b.falla("Se rompió a medio camino", e.message)
+    await pg.screenshot({ path: `${capturas}/flujo-promesas-ERROR.png` }).catch(() => {})
+  } finally {
+    await ctx.close()
+  }
+  return b.pasos
+}
+
 export const FLUJOS = [
   subirIdentificacion,
   registrarse,
   panelDelPaseador,
   recuperarContrasena,
   precioQueSeVeEsElQueSeCobra,
+  loQuePrometeElSitio,
 ]

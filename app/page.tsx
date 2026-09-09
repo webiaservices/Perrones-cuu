@@ -48,24 +48,9 @@ const STEPS = [
   },
 ]
 
-// Testimonios de respaldo si la DB todavía no tiene reseñas reales
-const FALLBACK_TESTIMONIOS = [
-  {
-    text: "Bruno llega a casa agotado y feliz cada vez. El reporte con fotos me encanta.",
-    name: "Lorena M.",
-    dog: "Bruno (Labrador, 3 años)",
-  },
-  {
-    text: "Pensé que Nala era muy nerviosa para los paseos. La tienen como embajadora del grupo.",
-    name: "Rodrigo V.",
-    dog: "Nala (Chihuahua, 5 años)",
-  },
-  {
-    text: "Dos perros y ningún problema. Los manejan como si fueran suyos. 100% recomendados.",
-    name: "Fernanda Q.",
-    dog: "Max & Luna (Golden Retrievers)",
-  },
-]
+// Aquí vivían tres testimonios inventados de respaldo. Se quitaron a propósito:
+// una reseña que nadie escribió es publicidad engañosa (LFPC art. 32). Si no hay
+// reseñas reales aprobadas, la sección invita a dejar la primera y ya.
 
 async function getRealReviews() {
   try {
@@ -87,6 +72,9 @@ async function getRealReviews() {
           // nombre/perro escritos en la reseña; si no, del perfil/paseo
           name: (r.reviewer_name as string | null) ?? profile?.full_name ?? "Cliente",
           dog: (r.dog_name as string | null) ?? reservation?.dog_name ?? "",
+          // La calificación que puso el cliente. Se pinta tal cual: pintar 5
+          // estrellas en una reseña de 3 es inventarle palabras a alguien.
+          rating: Math.min(5, Math.max(1, Number(r.rating) || 5)),
         }
       })
   } catch {
@@ -101,13 +89,16 @@ export default async function HomePage() {
     preciosDe("chihuahua"),
     preciosDe("cdmx"),
   ])
-  const realReviews = await getRealReviews()
-  // Se muestran TODAS las reales rotando. Si hay pocas, rellenamos con las de
-  // respaldo solo para que el carrusel no se vea vacío (a partir de ~5 reales
-  // ya solo se ven reales).
-  const TESTIMONIOS = realReviews.length >= 5
-    ? realReviews
-    : [...realReviews, ...FALLBACK_TESTIMONIOS].slice(0, 5)
+  // Se muestran TODAS las reales rotando, y nada más que las reales.
+  const TESTIMONIOS = await getRealReviews()
+  // Calificación del hero: antes decía "4.9 (248 reseñas)" a mano. Ese número
+  // nunca existió. Ahora se calcula con las reseñas aprobadas de verdad y, si
+  // no hay ninguna, la insignia no se pinta.
+  const totalResenas = TESTIMONIOS.length
+  const promedio =
+    totalResenas > 0
+      ? (TESTIMONIOS.reduce((s, r) => s + r.rating, 0) / totalResenas).toFixed(1)
+      : null
   const supabase = await createClient()
   const {
     data: { user },
@@ -141,7 +132,7 @@ export default async function HomePage() {
                 <span className="block text-primary">dueños tranquilos.</span>
               </h1>
               <p className="mt-6 max-w-md text-pretty text-lg leading-relaxed text-muted-foreground">
-                Paseadores certificados que aman los perros tanto como tú. En Chihuahua y Ciudad de México, a un mensaje de distancia.
+                Paseadores verificados que aman los perros tanto como tú. En Chihuahua y Ciudad de México, a un mensaje de distancia.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center md:justify-start">
                 <Button asChild size="lg" className="shine group h-12 rounded-full px-7 text-base font-bold transition-transform hover:scale-[1.03] active:scale-[0.97]">
@@ -162,21 +153,32 @@ export default async function HomePage() {
 
               {/* Stats */}
               <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center md:justify-start">
-                <div className="flex items-center gap-2">
-                  <div className="flex">
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <Star
-                        key={i}
-                        className="h-4 w-4 fill-amber-400 text-amber-400 transition-transform hover:scale-125"
-                        style={{ transitionDelay: `${i * 30}ms` }}
-                      />
-                    ))}
-                  </div>
-                  <span className="text-sm font-bold">
-                    4.9 <span className="font-normal text-muted-foreground">(248 reseñas)</span>
-                  </span>
-                </div>
-                <div className="hidden h-4 w-px bg-border sm:block" />
+                {promedio && (
+                  <>
+                    <a href="#resenas" className="flex items-center gap-2">
+                      <div className="flex" aria-hidden="true">
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <Star
+                            key={i}
+                            className={
+                              i <= Math.round(Number(promedio))
+                                ? "h-4 w-4 fill-amber-400 text-amber-400 transition-transform hover:scale-125"
+                                : "h-4 w-4 text-muted-foreground/30 transition-transform hover:scale-125"
+                            }
+                            style={{ transitionDelay: `${i * 30}ms` }}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-sm font-bold">
+                        {promedio}{" "}
+                        <span className="font-normal text-muted-foreground">
+                          ({totalResenas} {totalResenas === 1 ? "reseña" : "reseñas"})
+                        </span>
+                      </span>
+                    </a>
+                    <div className="hidden h-4 w-px bg-border sm:block" />
+                  </>
+                )}
                 <div className="flex items-center gap-2 text-sm font-bold">
                   <ShieldCheck className="h-4 w-4 text-primary" />
                   Paseadores verificados
@@ -231,8 +233,12 @@ export default async function HomePage() {
                 <span>·</span>
                 <span>Paseos seguros</span>
                 <span>·</span>
-                <span>4.9 estrellas</span>
-                <span>·</span>
+                {promedio && (
+                  <>
+                    <span>{promedio} estrellas</span>
+                    <span>·</span>
+                  </>
+                )}
                 <span>Paseadores verificados</span>
                 <span>·</span>
                 <span>Foto y reporte al terminar</span>
@@ -299,9 +305,20 @@ export default async function HomePage() {
                 </h2>
               </div>
             </Reveal>
-            <ReviewsMarquee reviews={TESTIMONIOS} />
+            {/* Si todavía no hay reseñas aprobadas no se inventa ninguna: se
+                invita a escribir la primera. */}
+            {TESTIMONIOS.length > 0 ? (
+              <ReviewsMarquee reviews={TESTIMONIOS} />
+            ) : (
+              <p className="mx-auto max-w-md text-balance text-center text-muted-foreground">
+                Todavía no tenemos reseñas publicadas. Las que aparezcan aquí serán de clientes
+                reales, escritas por ellos.
+              </p>
+            )}
             <div className="mt-10 text-center">
-              <p className="mb-3 text-sm text-muted-foreground">¿Ya paseaste con nosotros?</p>
+              <p className="mb-3 text-sm text-muted-foreground">
+                {TESTIMONIOS.length > 0 ? "¿Ya paseaste con nosotros?" : "¿Ya paseaste con nosotros? Sé el primero."}
+              </p>
               <Button asChild variant="outline" className="rounded-full font-bold">
                 <Link href="/opinar">Deja tu reseña ⭐</Link>
               </Button>

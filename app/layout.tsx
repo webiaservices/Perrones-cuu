@@ -19,7 +19,7 @@ const fraunces = Fraunces({
 export const metadata: Metadata = {
   title: "Perrones Cuu · Perros felices, dueños tranquilos",
   description:
-    "Te enlazamos con paseadores certificados en Ciudad Chihuahua. Agenda el paseo de tu perro a un mensaje de distancia.",
+    "Te enlazamos con paseadores verificados en Ciudad Chihuahua. Agenda el paseo de tu perro a un mensaje de distancia.",
   generator: "v0.app",
   manifest: "/manifest.json",
   themeColor: "#3DCABD",

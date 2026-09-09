@@ -2,7 +2,7 @@
 
 import { Star } from "lucide-react"
 
-type Testimonio = { text: string; name: string; dog: string }
+type Testimonio = { text: string; name: string; dog: string; rating?: number }
 
 /**
  * Reseñas rotando en carrusel horizontal continuo (estilo Google/marquee).
@@ -33,9 +33,18 @@ export function ReviewsMarquee({ reviews }: { reviews: Testimonio[] }) {
             key={i}
             className="mr-6 flex h-full w-[300px] shrink-0 flex-col rounded-3xl border border-border bg-card p-6 shadow-sm md:w-[340px]"
           >
-            <div className="mb-3 flex">
-              {[0, 1, 2, 3, 4].map((s) => (
-                <Star key={s} className="h-4 w-4 fill-primary text-primary" />
+            {/* Se pintan las estrellas que puso el cliente, no cinco siempre */}
+            <div className="mb-3 flex" aria-label={`${t.rating ?? 5} de 5 estrellas`}>
+              {[1, 2, 3, 4, 5].map((s) => (
+                <Star
+                  key={s}
+                  aria-hidden="true"
+                  className={
+                    s <= (t.rating ?? 5)
+                      ? "h-4 w-4 fill-primary text-primary"
+                      : "h-4 w-4 text-muted-foreground/30"
+                  }
+                />
               ))}
             </div>
             <blockquote className="flex-1 text-pretty leading-relaxed">&ldquo;{t.text}&rdquo;</blockquote>
