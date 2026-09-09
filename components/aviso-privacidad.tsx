@@ -54,10 +54,11 @@ export function AvisoPrivacidadContenido({ compacto = false }: { compacto?: bool
         después de la relación. Esto incluye el período en que el paseador deje de operar con la Plataforma.
       </p>
 
-      <h2 className={h}>5. Seguro y cobertura</h2>
+      <h2 className={h}>5. El servicio no incluye seguro</h2>
       <p>
-        La cobertura de seguro para mascotas únicamente aplica cuando el paseo se gestiona dentro de Perrones Cuu.
-        Cualquier servicio fuera de la Plataforma queda sin protección.
+        Perrones Cuu no ofrece ni contrata seguro, cobertura veterinaria ni garantía económica sobre tu perro. Si
+        quieres a tu perro asegurado, tienes que contratar una póliza por tu cuenta con una aseguradora. Lo decimos
+        aquí para que nadie contrate creyendo que existe una cobertura que no existe.
       </p>
 
       <h2 className={h}>6. Rastreo por GPS</h2>

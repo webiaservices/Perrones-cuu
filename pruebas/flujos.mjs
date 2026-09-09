@@ -496,15 +496,36 @@ export async function loQuePrometeElSitio({ nav, base, capturas }) {
       if (faltan.length) b.falla("Los términos no dicen " + faltan.join(", "))
       else b.ok("Los términos dicen cómo se paga, cómo se cancela y a dónde reclamar")
 
-      // Mientras no haya póliza que mostrar, no se promete seguro por escrito
-      if (/seguro|cobertura/i.test(t)) b.falla("Los términos prometen seguro sin póliza confirmada")
-      else b.ok("Los términos no prometen un seguro que no podemos comprobar")
+      // NO hay póliza (confirmado sep-2026). Los términos tienen que decirlo de
+      // frente, y en ningún lado puede volver a aparecer la promesa.
+      if (/no ofrece ni contrata seguro/i.test(t)) b.ok("Los términos avisan que no hay seguro")
+      else b.falla("Los términos ya no avisan que el servicio no incluye seguro")
 
       if (/undefined|null/.test(t)) b.falla("Se coló un dato vacío en los términos")
       else b.ok("Ningún hueco visible en los datos del negocio")
     }
 
     await sinBotonesMuertos(pg, b, "Términos")
+
+    // Ninguna página pública puede volver a prometer seguro ni responsabilidad
+    // ilimitada. Se busca la promesa, no la palabra: "no incluye seguro" es
+    // justo lo que queremos que diga.
+    // OJO con la negación: "no incluye seguro" es lo que SÍ queremos que diga.
+    // Por eso cada patrón descarta antes el "no"/"tampoco" que lo precede.
+    const PROMESAS = [
+      /(?<!\b(?:no|tampoco|nunca)\s)incluye seguro/i,
+      /(?<!\b(?:no|sin)\s)seguro para tu perrito incluido/i,
+      /con seguro incluido/i,
+      /nos hacemos responsables/i,
+      /se hace responsable de tu perr/i,
+    ]
+    for (const ruta of ["/", "/terminos", "/privacidad"]) {
+      await pg.goto(`${base}${ruta}`, { waitUntil: "networkidle" })
+      const txt = await pg.locator("body").innerText()
+      const pega = PROMESAS.filter((re) => re.test(txt))
+      if (pega.length) b.falla(`${ruta} volvió a prometer seguro o responsabilidad ilimitada`, String(pega[0]))
+      else b.ok(`${ruta}: sin promesas que no podamos cumplir`)
+    }
   } catch (e) {
     b.falla("Se rompió a medio camino", e.message)
     await pg.screenshot({ path: `${capturas}/flujo-promesas-ERROR.png` }).catch(() => {})

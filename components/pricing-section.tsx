@@ -38,7 +38,7 @@ export function PricingSection({
         <div className="mx-auto mb-10 max-w-2xl text-center">
           <h2 className="text-pretty text-3xl font-extrabold tracking-tight md:text-4xl">Paquetes claros y justos</h2>
           <p className="mt-3 text-muted-foreground leading-relaxed">
-            Elige cuántos perros pasea Perrones Cuu y mira el precio al instante. Todo incluye seguro para tu perrito.
+            Elige cuántos perros pasea Perrones Cuu y mira el precio al instante. Sin cargos extra: lo que ves es lo que se cobra.
           </p>
         </div>
 
@@ -128,7 +128,7 @@ export function PricingSection({
 
         <p className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
           <ShieldCheck className="h-4 w-4 text-primary" />
-          Cada paseo incluye seguro para tu perrito.
+          Cada paseo termina con foto y reporte de cómo le fue.
         </p>
 
         {/* Rutas agrupadas: se invita a preguntar, nunca se muestra el descuento.

@@ -106,11 +106,13 @@ export const PLANS: Plan[] = [
   },
 ]
 
+// Solo se lista lo que se cumple. Aquí decía "Seguro para tu perrito incluido"
+// y no hay póliza: eso es publicidad engañosa (LFPC art. 32).
 export const PLAN_FEATURES = [
   "Paseador verificado",
   "Foto y reporte al terminar",
   "GPS en tiempo real",
-  "Seguro para tu perrito incluido",
+  "Aviso inmediato si algo pasa",
 ]
 
 // Por default la plataforma se queda el 30% del total; el resto es del paseador.

@@ -96,7 +96,8 @@ export const MANUAL_SECCIONES: ManualSeccion[] = [
       {
         titulo: "5.2 El perro se lastima o muestra signos de enfermedad",
         puntos: [
-          "Detén el paseo de inmediato (no te preocupes, la empresa se hace responsable de lo que le haya pasado al perro durante el paseo).",
+          "Detén el paseo de inmediato y avisa al coordinador antes que a nadie más.",
+          "NO le prometas al dueño que la empresa paga el veterinario ni que hay un seguro: no existe una póliza. Quien decide cómo se resuelve cada caso es el coordinador.",
           "Contacta al dueño y al coordinador para decidir si se traslada a un veterinario.",
           "Nunca administres medicamento alguno sin autorización expresa del dueño.",
         ],

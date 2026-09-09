@@ -21,8 +21,9 @@ const p = "mt-3 leading-relaxed text-foreground/90"
  * código, cambia aquí: publicar una condición que el producto no cumple es
  * justo lo que sanciona la LFPC.
  *
- * A propósito NO se habla aquí de seguro ni de cobertura: mientras no haya una
- * póliza que se pueda mostrar, no se promete por escrito.
+ * Confirmado por el cliente en sep-2026: NO existe póliza de seguro. Por eso el
+ * apartado 6 lo dice de frente en vez de callarlo. Contra un reclamo, haber
+ * avisado claro antes de contratar vale más que cualquier letra chica.
  */
 export default async function TerminosPage() {
   const supabase = await createClient()
@@ -92,7 +93,23 @@ export default async function TerminosPage() {
             se cobra nada por adelantado ni se guardan datos de tarjetas en el sitio.
           </p>
 
-          <h2 className={h}>6. Cancelaciones y reembolsos</h2>
+          <h2 className={h}>6. El servicio no incluye seguro</h2>
+          <p className={p}>
+            {BRAND.name} <strong>no ofrece ni contrata seguro, cobertura veterinaria, fianza ni
+            garantía económica</strong> sobre tu perro, sobre terceros o sobre bienes. Si quieres a
+            tu perro asegurado, tienes que contratar una póliza por tu cuenta con una aseguradora. Lo
+            decimos aquí, antes de que contrates, para que nadie dé por hecho una cobertura que no
+            existe.
+          </p>
+          <p className={p}>
+            Si tu perro se lastima durante el paseo, el paseador detiene el servicio, te avisa de
+            inmediato y apoya para trasladarlo a un veterinario. Los gastos veterinarios corren por
+            tu cuenta, salvo que el daño se haya producido por negligencia del paseador, caso en el
+            que respondemos conforme a la ley. No pretendemos excluir la responsabilidad que la ley
+            nos impone por nuestras propias faltas.
+          </p>
+
+          <h2 className={h}>7. Cancelaciones y reembolsos</h2>
           <ul className="mt-3 list-disc space-y-1 pl-5 text-foreground/90">
             <li>
               Puedes cancelar un paseo desde tu panel <strong>en cualquier momento antes de que
@@ -121,14 +138,14 @@ export default async function TerminosPage() {
             </li>
           </ul>
 
-          <h2 className={h}>7. Cambios de horario</h2>
+          <h2 className={h}>8. Cambios de horario</h2>
           <p className={p}>
             Para reprogramar, cancela el paseo desde tu panel antes de que inicie y reserva de nuevo,
             o escríbenos por WhatsApp y lo movemos contigo. Si somos nosotros quienes necesitamos
             mover un paseo, te avisamos antes y puedes cancelarlo sin costo.
           </p>
 
-          <h2 className={h}>8. Responsabilidad</h2>
+          <h2 className={h}>9. Responsabilidad</h2>
           <p className={p}>
             Como dueño, eres responsable de los daños que tu perro cause durante el paseo a otras
             personas, a otros animales, al paseador o a la propiedad ajena, así como de los gastos
@@ -137,14 +154,14 @@ export default async function TerminosPage() {
             condiciones se detallan en el contrato que aceptas al crear tu cuenta.
           </p>
 
-          <h2 className={h}>9. Reseñas</h2>
+          <h2 className={h}>10. Reseñas</h2>
           <p className={p}>
             Las reseñas que aparecen en el sitio son de clientes reales y se publican con la
             calificación que ellos pusieron. No publicamos testimonios inventados ni modificamos el
             texto de una reseña.
           </p>
 
-          <h2 className={h}>10. Tus datos</h2>
+          <h2 className={h}>11. Tus datos</h2>
           <p className={p}>
             Cómo tratamos tus datos personales está en el{" "}
             <Link href="/privacidad" className="font-semibold text-primary underline">
@@ -153,7 +170,7 @@ export default async function TerminosPage() {
             .
           </p>
 
-          <h2 className={h}>11. Quejas</h2>
+          <h2 className={h}>12. Quejas</h2>
           <p className={p}>
             Cualquier inconformidad escríbela a {BRAND.email} o al WhatsApp {BRAND.telefono}; te
             respondemos dentro de los 5 días hábiles siguientes. Si no quedas conforme, puedes acudir
@@ -169,7 +186,7 @@ export default async function TerminosPage() {
             .
           </p>
 
-          <h2 className={h}>12. Cambios y ley aplicable</h2>
+          <h2 className={h}>13. Cambios y ley aplicable</h2>
           <p className={p}>
             Podemos actualizar estos términos; la fecha de arriba indica la última versión y los
             cambios aplican a las reservas hechas después de esa fecha. Estos términos se rigen por

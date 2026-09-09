@@ -224,7 +224,7 @@ export function ReservarClient({
   const handleConfirm = async () => {
     setError(null)
     if (!acceptedResponsibility) {
-      setError("Confirma que entiendes la garantía de Perrones Cuu para continuar.")
+      setError("Marca la casilla para confirmar que leíste cómo respondemos por el paseo.")
       return
     }
     setLoading(true)
@@ -763,7 +763,7 @@ export function ReservarClient({
                   </li>
                   <li className="flex items-start gap-3">
                     <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                    <span>Seguro para tu perrito incluido durante el paseo gestionado por la plataforma.</span>
+                    <span>Paseador verificado, con foto y reporte al terminar.</span>
                   </li>
                 </ul>
 
@@ -778,7 +778,11 @@ export function ReservarClient({
                   </p>
                 </div>
 
-                {/* Aviso: Perrones se hace responsable mientras el paseo esté dentro de la plataforma */}
+                {/* Antes este recuadro decía "Perrones Cuu se hace responsable de
+                    tu perrito" y "seguro incluido". No hay póliza: prometer una
+                    responsabilidad ilimitada sin nada que la respalde es
+                    justo lo que convierte un incidente en demanda. Ahora dice lo
+                    que la plataforma sí hace y lo que no. */}
                 <label className="flex cursor-pointer items-start gap-3 rounded-2xl border-2 border-primary/40 bg-primary/5 p-5">
                   <input
                     type="checkbox"
@@ -787,13 +791,22 @@ export function ReservarClient({
                     className="mt-1 h-6 w-6 rounded border-2 border-primary"
                   />
                   <div>
-                    <p className="text-base font-extrabold">🛡️ Perrones Cuu se hace responsable de tu perrito</p>
+                    <p className="text-base font-extrabold">🛡️ Cómo respondemos por tu paseo</p>
                     <p className="mt-1 text-sm leading-relaxed text-foreground/80">
-                      Mientras agendes tu paseo dentro de la plataforma, <b>nosotros nos hacemos responsables</b> de tu perrito durante el servicio:
-                      paseadores verificados, seguro incluido y atención al cliente.
+                      Agendando dentro de la plataforma te asignamos un <b>paseador verificado</b>, te avisamos de
+                      inmediato si algo pasa y respondemos por nuestras propias fallas. El servicio{" "}
+                      <b>no incluye seguro ni cobertura veterinaria</b>: si quieres a tu perro asegurado, la póliza la
+                      contratas tú.
                     </p>
                     <p className="mt-2 rounded-lg bg-primary/10 px-3 py-2 text-xs font-semibold leading-relaxed text-primary">
-                      ⚠️ Importante: si contratas un paseador por fuera, pierdes el seguro y nuestra garantía. La plataforma deja de responder.
+                      ⚠️ Si contratas a un paseador por fuera, la plataforma no coordina ese paseo ni responde por él.
+                    </p>
+                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                      Al marcar esta casilla confirmas que leíste{" "}
+                      <a href="/terminos" target="_blank" rel="noreferrer" className="font-semibold underline">
+                        los términos y condiciones
+                      </a>
+                      .
                     </p>
                   </div>
                 </label>

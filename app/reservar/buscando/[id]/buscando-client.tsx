@@ -174,7 +174,7 @@ export function BuscandoClient({
                 <div className="mt-8 rounded-2xl bg-accent/30 p-4 text-left text-sm">
                   <p className="flex items-start gap-2">
                     <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                    <span>Tu paseo incluye seguro mientras lo gestiones por Perrones Cuu. Si lo contratas por fuera, ese beneficio no aplica.</span>
+                    <span>Gestionando el paseo por Perrones Cuu te asignamos un paseador verificado y te avisamos si algo pasa. Si lo contratas por fuera, la plataforma no responde por ese paseo.</span>
                   </p>
                 </div>
 
