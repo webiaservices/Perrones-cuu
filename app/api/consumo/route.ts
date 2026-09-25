@@ -82,8 +82,13 @@ export async function GET(req: NextRequest) {
           c === "channels-messaging-outbound" ||
           c === "channels-messaging-inbound" ||
           c === "failed-message-processing-fee"
+        const presentes = registros.map((r) => r.category)
+        // Twilio manda también categorías que SON la suma de otras (p.ej.
+        // "channels-whatsapp" = marketing + utility + ...). Si se sumaran, el
+        // total saldría doble: se quita toda categoría que tenga subcategorías.
+        const esSuma = (c: string) => presentes.some((o) => o !== c && o.startsWith(`${c}-`))
         twilio = registros
-          .filter((r) => interesan(r.category) && (Number(r.count) > 0 || Number(r.price) > 0))
+          .filter((r) => interesan(r.category) && !esSuma(r.category) && (Number(r.count) > 0 || Number(r.price) > 0))
           .map((r) => ({ categoria: r.category, cantidad: Number(r.count), usd: Math.abs(Number(r.price)) }))
           .sort((a, b) => b.usd - a.usd)
         twilioTotalUsd = Number(twilio.reduce((s, r) => s + r.usd, 0).toFixed(4))
