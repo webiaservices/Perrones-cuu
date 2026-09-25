@@ -314,7 +314,9 @@ export async function anunciarVacante(
   telefonosYa.add(tel10(BRAND.whatsapp))
   const cupoWa = CUPO_WHATSAPP_POR_OLA[ola - 1] ?? 0
   let nWa = 0
-  for (const p of elegirWhatsApp(paseadores, ctx, cupoWa, telefonosYa)) {
+  // Los que se enteraron gratis en esta ola ocupan su lugar en el cupo
+  const gratisEnEstaOla = new Set([...alcanzados])
+  for (const p of elegirWhatsApp(paseadores, ctx, cupoWa, telefonosYa, gratisEnEstaOla)) {
     if (!(await anotar(p.id, "whatsapp"))) continue
     // paseo_disponible: {{1}} paseador · {{2}} zona · {{3}} PAGO SEMANAL.
     // La 3ª va como pago y no como fecha a petición de Endy: sin la etiqueta,

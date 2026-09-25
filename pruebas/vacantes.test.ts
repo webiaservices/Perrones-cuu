@@ -110,3 +110,24 @@ test("el aviso gratis va a TODOS los de la ciudad (incluso sin manual), una sola
   const ids = elegirPush([sinManual, conManual, yaRecibio], c).map((x) => x.id)
   assert.deepEqual(ids.sort(), [sinManual.id, conManual.id].sort())
 })
+
+test("cada paseador que activó el aviso gratis es un WhatsApp MENOS, no uno para otro", () => {
+  const top = [p({ id: "t1" }), p({ id: "t2" })]
+  const resto = Array.from({ length: 10 }, () => p())
+  const c = ctx({
+    tomados: { t1: 5, t2: 4 },
+    yaAvisados: { push: new Set(["t1", "t2"]), whatsapp: new Set(), correo: new Set() },
+  })
+  const elegidos = elegirWhatsApp([...resto, ...top], c, 5, new Set(), new Set(["t1", "t2"]))
+  assert.equal(elegidos.length, 3)
+  assert.ok(elegidos.every((x) => x.id !== "t1" && x.id !== "t2"))
+})
+
+test("si los 5 mejores ya se enteraron gratis, no se paga ningún WhatsApp", () => {
+  const top = Array.from({ length: 5 }, (_, i) => p({ id: `top${i}` }))
+  const resto = Array.from({ length: 10 }, () => p())
+  const tomados = Object.fromEntries(top.map((x) => [x.id, 3]))
+  const gratis = new Set(top.map((x) => x.id))
+  const c = ctx({ tomados, yaAvisados: { push: gratis, whatsapp: new Set(), correo: new Set() } })
+  assert.equal(elegirWhatsApp([...resto, ...top], c, 5, new Set(), gratis).length, 0)
+})

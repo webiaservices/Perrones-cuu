@@ -71,11 +71,23 @@ export function elegirWhatsApp(
   cupo: number,
   /** Teléfonos (últimos 10) a los que ya se les mandó esta vacante. */
   telefonosYaAvisados: Set<string> = new Set(),
+  /**
+   * A quién le llegó el aviso gratis EN ESTA OLA. Ocupan su lugar en el cupo:
+   * el cupo es "los N con más probabilidad de tomarlo", y a los que ya se
+   * enteraron gratis no hay que pagarles. Así, cada paseador que activa el
+   * aviso al celular es un WhatsApp menos por vacante (y no uno para otro).
+   */
+  alcanzadosGratis: Set<string> = new Set(),
 ): Paseador[] {
   const vistos = new Set(telefonosYaAvisados)
   const elegidos: Paseador[] = []
+  let lugaresOcupados = 0
   for (const p of ordenar(deLaCiudad(paseadores, ctx.ciudad), ctx)) {
-    if (elegidos.length >= cupo) break
+    if (elegidos.length + lugaresOcupados >= cupo) break
+    if (alcanzadosGratis.has(p.id)) {
+      if (p.manual_ok) lugaresOcupados++
+      continue
+    }
     const t = tel10(p.phone)
     if (t.length < 10) continue
     if ((p.wa_rebotes ?? 0) >= 2) continue
