@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useEffect} from "react"
+import { useMemo, useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -32,6 +32,7 @@ import { createClient } from "@/lib/supabase/client"
 import { walkerPayoutFor, ZONES } from "@/lib/constants"
 import { ManualPaseadores } from "@/components/manual-paseadores"
 import { MANUAL_VERSION } from "@/lib/manual-paseadores"
+import { AvisosCelular } from "@/components/avisos-celular"
 
 export type WalkerReservation = {
   id: string
@@ -117,6 +118,56 @@ export function WalkerPanel({
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const [selectedReservation, setSelectedReservation] = useState<WalkerReservation | null>(null)
   const [updating, setUpdating] = useState<string | null>(null)
+
+  // La lista era una foto del momento en que cargó la página: una vacante
+  // nueva no aparecía hasta recargar a mano, y con la app instalada el
+  // teléfono la reanuda desde memoria. Ahora se pide de nuevo al volver a la
+  // app y cada minuto mientras está a la vista, para que el aviso al celular
+  // lleve a una lista al día.
+  const ocultos = useRef<Set<string>>(new Set())
+  const ocupado = useRef(false)
+  ocupado.current = updating !== null
+  // Cuándo se pidió el último refresco y cuándo cambió algo aquí mismo. Un
+  // refresco pedido ANTES de aceptar o soltar un paseo trae datos viejos: si
+  // se aplicara, el paseo recién aceptado "reviviría" en Disponibles.
+  const pedidoEn = useRef(0)
+  const mutadoEn = useRef(0)
+  useEffect(() => {
+    if (pedidoEn.current && pedidoEn.current < mutadoEn.current) {
+      pedidoEn.current = Date.now()
+      router.refresh()
+      return
+    }
+    setReservations(initial.filter((r) => !ocultos.current.has(r.id)))
+  }, [initial, router])
+  useEffect(() => {
+    let ultimo = Date.now()
+    const refrescar = async () => {
+      if (document.visibilityState !== "visible" || ocupado.current) return
+      if (Date.now() - ultimo < 30000) return
+      ultimo = Date.now()
+      // Sin señal NO se refresca: si el refresco falla, Next navega la página
+      // completa y el paseador (en la calle, viendo la dirección) se queda con
+      // la pantalla de "sin conexión" del navegador.
+      if (navigator.onLine === false) return
+      try {
+        const ping = await fetch("/manifest.json", { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(4000) })
+        if (!ping.ok) return
+      } catch {
+        return
+      }
+      pedidoEn.current = Date.now()
+      router.refresh()
+    }
+    document.addEventListener("visibilitychange", refrescar)
+    window.addEventListener("focus", refrescar)
+    const reloj = setInterval(refrescar, 60000)
+    return () => {
+      document.removeEventListener("visibilitychange", refrescar)
+      window.removeEventListener("focus", refrescar)
+      clearInterval(reloj)
+    }
+  }, [router])
 
   // Manual: aceptado solo cuenta si es la versión vigente. Si el manual se
   // actualiza, vuelve a pedirse la aceptación sin borrar la anterior.
@@ -213,6 +264,7 @@ export function WalkerPanel({
   }
 
   const acceptPaseo = async (id: string) => {
+    mutadoEn.current = Date.now()
     setUpdating(id)
     const target = reservations.find((r) => r.id === id)
 
@@ -265,6 +317,8 @@ export function WalkerPanel({
   }
 
   const rejectPaseo = (id: string) => {
+    // Se recuerda para que el refresco automático no lo vuelva a mostrar
+    ocultos.current.add(id)
     setReservations((prev) => prev.filter((r) => r.id !== id))
   }
 
@@ -294,6 +348,7 @@ export function WalkerPanel({
   }
 
   const updateStatus = async (id: string, status: string) => {
+    mutadoEn.current = Date.now()
     const supabase = createClient()
 
     // "Cancelar" para el paseador = SOLTAR el paseo: regresa al pool para que
@@ -530,6 +585,10 @@ export function WalkerPanel({
             highlight={stats.disponibles > 0}
           />
         </div>
+
+        {/* Avisos gratis al celular: así se enteran de los paseos sin que se
+            pague un WhatsApp por cada uno */}
+        <AvisosCelular />
 
         {/* Toggle Lista / Calendario */}
         <div className="mb-5 flex items-center gap-2 rounded-full bg-background p-1.5 shadow-sm w-fit">

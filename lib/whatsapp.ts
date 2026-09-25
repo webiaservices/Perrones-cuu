@@ -300,19 +300,43 @@ async function twilioEstadoSender(auth: string, numero: string | undefined) {
  * Devuelve el estado en mayúsculas (APPROVED / PENDING / RECEIVED / REJECTED)
  * o null si no se pudo consultar — nunca truena el panel por esto.
  */
-async function twilioEstadoPlantilla(contentSid: string, auth: string): Promise<string | null> {
+async function twilioEstadoPlantilla(
+  contentSid: string,
+  auth: string,
+): Promise<{ estado: string | null; categoria: string | null }> {
   try {
     const res = await fetch(`${TWILIO_CONTENT_BASE}/Content/${contentSid}/ApprovalRequests`, {
       headers: { Authorization: auth },
       cache: "no-store",
     })
-    if (!res.ok) return null
+    if (!res.ok) return { estado: null, categoria: null }
     const data = await res.json()
     const estado = data?.whatsapp?.status
-    return typeof estado === "string" ? estado.toUpperCase() : null
+    // La categoría que Meta le asignó DE VERDAD. Se dieron de alta como
+    // utility, pero Meta puede pasarlas a marketing por su cuenta (y entonces
+    // cada mensaje cuesta ~5 veces más sin que cambie nada en el código).
+    const categoria = data?.whatsapp?.category
+    return {
+      estado: typeof estado === "string" ? estado.toUpperCase() : null,
+      categoria: typeof categoria === "string" ? categoria.toUpperCase() : null,
+    }
   } catch {
-    return null
+    return { estado: null, categoria: null }
   }
+}
+
+/** Categoría real (UTILITY / MARKETING / ...) de cada plantilla configurada. */
+export async function categoriasDePlantillas(): Promise<Record<string, string | null>> {
+  const con = getConexion()
+  const out: Record<string, string | null> = {}
+  if (!con || con.proveedor !== "twilio") return out
+  await Promise.all(
+    PLANTILLAS.map(async (p) => {
+      const sid = twilioContentSid(p.nombre)
+      out[p.nombre] = sid ? (await twilioEstadoPlantilla(sid, con.headers.Authorization)).categoria : null
+    }),
+  )
+  return out
 }
 
 /**
@@ -330,7 +354,7 @@ export type WhatsAppStatus = {
   numero?: string
   nombreNegocio?: string
   calidad?: string
-  plantillas: { name: string; desc: string; estado: string }[]
+  plantillas: { name: string; desc: string; estado: string; categoria?: string | null }[]
 }
 
 /**
@@ -360,8 +384,8 @@ export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
         const sid = twilioContentSid(p.name)
         if (!sid) return { ...p, estado: "falta su Content SID" }
         // Si Twilio no contesta, al menos se sabe que el SID ya está puesto
-        const estado = await twilioEstadoPlantilla(sid, con.headers.Authorization)
-        return { ...p, estado: estado ?? "configurada" }
+        const { estado, categoria } = await twilioEstadoPlantilla(sid, con.headers.Authorization)
+        return { ...p, estado: estado ?? "configurada", categoria }
       }),
     )
     try {

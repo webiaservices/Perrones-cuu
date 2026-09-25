@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { BRAND, PAYMENT_ACCOUNT } from "@/lib/constants"
 import { EMAIL_LOGO_IMG } from "@/lib/email-brand"
-import { sendWhatsAppTemplate } from "@/lib/whatsapp"
+import { enviarWhatsApp } from "@/lib/wa-envios"
 import { getCaller } from "@/lib/api-auth"
 
 /**
@@ -68,9 +68,42 @@ export async function POST(req: NextRequest) {
     if (r.payment_status === "pagado") return NextResponse.json({ skipped: true, reason: "ya pagado" })
     if (r.payment_reminded_at) return NextResponse.json({ skipped: true, reason: "ya se le recordó" })
 
+    // Paquetes: el cobro va al terminar el ÚLTIMO paseo, no el primero. Antes
+    // salía al completar el día 1 con el texto "hoy se realiza el último paseo
+    // de su semana", y los días 3 y 7 de pago_vencido se contaban desde ahí:
+    // al cliente de una semana le llegaba "pago pendiente" a media semana.
+    // Regla: sale cuando se completa el ÚLTIMO día del paquete (por fecha),
+    // aunque a algún día anterior se le haya olvidado la marca. Si se exigiera
+    // que TODOS estén completados, un día sin marcar dejaba al cliente sin
+    // ningún cobro, nunca.
+    if (r.package_id) {
+      const { data: ultimo } = await admin
+        .from("reservations")
+        .select("id")
+        .eq("package_id", r.package_id)
+        .neq("status", "cancelada")
+        .order("scheduled_at", { ascending: false })
+        .limit(1)
+      if (ultimo?.[0] && ultimo[0].id !== reservationId) {
+        return NextResponse.json({ skipped: true, reason: "el cobro sale al terminar el último paseo del paquete" })
+      }
+    }
+
+    // Candado ANTES de mandar: se marca solo si nadie lo marcó ya. Dos
+    // llamadas al mismo tiempo (paseador y admin marcando completado) mandaban
+    // dos cobros; ahora solo la que gana el candado sigue.
+    const { data: marcado } = await admin
+      .from("reservations")
+      .update({ payment_reminded_at: new Date().toISOString() })
+      .eq("id", r.id)
+      .is("payment_reminded_at", null)
+      .select("id")
+    if (!marcado || marcado.length === 0) {
+      return NextResponse.json({ skipped: true, reason: "ya se le recordó" })
+    }
+
     const { data: u } = await admin.auth.admin.getUserById(r.user_id)
     const email = u?.user?.email
-    if (!email) return NextResponse.json({ skipped: true, reason: "sin email" })
 
     const { data: profile } = await admin
       .from("profiles")
@@ -78,9 +111,8 @@ export async function POST(req: NextRequest) {
       .eq("id", r.user_id)
       .single()
 
-    if (!RESEND_API_KEY) return NextResponse.json({ skipped: true, reason: "sin Resend" })
-
-    await fetch("https://api.resend.com/emails", {
+    // El correo ya no condiciona al WhatsApp (antes, sin correo, no salía nada)
+    if (email && RESEND_API_KEY) await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -130,14 +162,16 @@ export async function POST(req: NextRequest) {
     if (profile?.phone) {
       // recordatorio_pago: {{1}} monto y nada más. El texto nuevo de Endy ya
       // explica lo de las reposiciones, así que no lleva nombre ni perro.
-      wa = await sendWhatsAppTemplate("recordatorio_pago", profile.phone, [
-        `MX$${Number(r.price_mxn).toLocaleString("es-MX")}`,
-      ])
+      wa = await enviarWhatsApp(admin, {
+        plantilla: "recordatorio_pago",
+        telefono: profile.phone,
+        variables: [`MX$${Number(r.price_mxn).toLocaleString("es-MX")}`],
+        clave: `recordatorio_pago|${r.package_id ?? r.id}`,
+        motivo: "cobro al terminar",
+        profileId: r.user_id,
+        reservationId: r.id,
+      })
     }
-
-    // Marcar como recordatorio enviado (en el paseo que carga el precio,
-    // que para paquetes es el paseo 1 al que redirigimos arriba)
-    await admin.from("reservations").update({ payment_reminded_at: new Date().toISOString() }).eq("id", r.id)
 
     return NextResponse.json({ ok: true, whatsapp: wa })
   } catch (e: unknown) {

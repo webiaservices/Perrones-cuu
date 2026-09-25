@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { sendWhatsAppTemplate } from "@/lib/whatsapp"
+import { enviarWhatsApp, type ResultadoEnvio } from "@/lib/wa-envios"
+import { mantenimientoDeVacantes, type ResumenOla } from "@/lib/vacantes"
 
 /**
  * Cron de avisos por tiempo. Corre cada 15 minutos.
@@ -11,6 +12,13 @@ import { sendWhatsAppTemplate } from "@/lib/whatsapp"
  *   2. recordatorio_paseador — 2 h antes de su primer paseo del día
  *   3. pago_vencido          — 3 días sin pago marcado (repite a los 7)
  *   4. solicitud_resena      — 1 día después del último paseo, cliente nuevo
+ *   5. vacantes              — 2ª ola si nadie la tomó, y ciclo nuevo si alguien
+ *                              la soltó (lib/vacantes)
+ *
+ * DOS RELOJES: GitHub Actions (que en la práctica corre cada ~2.8 h, no cada
+ * 15 min) y pg_cron dentro de Supabase (migración 0026). Pueden encimarse, así
+ * que cada candado revisa cuántas filas marcó: si otra corrida ya la marcó,
+ * esta no manda. Y wa_envios tiene su propio candado por clave.
  *
  * POR QUÉ GITHUB ACTIONS Y NO VERCEL CRON: el plan Hobby de Vercel solo
  * permite crons de una vez al día, con ±59 min de imprecisión. "2 horas
@@ -45,10 +53,25 @@ function fmtFecha(iso: string) {
 
 type Resultado = { enviados: number; errores: string[] }
 
+/** El envío "cuenta" si salió o si se simuló (modo prueba). */
+const salio = (r: ResultadoEnvio) => r.enviado
+/** No salió y no va a salir en el siguiente intento: no se devuelve la marca,
+ *  o cada corrida dentro de la ventana volvería a intentarlo. */
+const esDefinitivo = (r: ResultadoEnvio) => /^número (silenciado|inválido)/.test(r.motivo)
+
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET
-  const authHeader = req.headers.get("authorization")
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  const authHeader = req.headers.get("authorization") ?? ""
+  const llave = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : ""
+  const esGitHub = !!cronSecret && llave === cronSecret
+  // pg_cron manda una llave que vive solo dentro de la base; se valida
+  // preguntándole a la base (avisos_llave_valida, migración 0026)
+  let esPgCron = false
+  if (!esGitHub && llave) {
+    const { data } = await createAdminClient().rpc("avisos_llave_valida", { llave })
+    esPgCron = data === true
+  }
+  if (cronSecret && !esGitHub && !esPgCron) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -62,6 +85,14 @@ export async function GET(req: NextRequest) {
       pausado: true,
       motivo: "AVISOS_PAUSADOS=1 — el cron no manda nada hasta que se quite la variable",
     })
+  }
+
+  // En modo prueba los avisos por tiempo NO corren: sus marcas se escriben en
+  // reservas REALES y dejarían sin su aviso de verdad a clientes y
+  // paseadores. Solo corren las oleadas, y solo sobre reservas de prueba.
+  if (process.env.NOTIFICACIONES_SIMULADAS === "1") {
+    const vacantes = await mantenimientoDeVacantes(createAdminClient(), { soloPrueba: true })
+    return NextResponse.json({ ok: true, simulado: true, motivo: "modo de prueba: solo oleadas de reservas de prueba", vacantes })
   }
 
   const admin = createAdminClient()
@@ -111,18 +142,29 @@ export async function GET(req: NextRequest) {
       if (!p.scheduled_at) continue
       // Se marca ANTES de enviar: si el envío falla, preferimos no avisar a
       // avisar ocho veces. El admin lo ve igual en su panel.
-      const { error: marcaErr } = await admin
+      const { data: marcadas, error: marcaErr } = await admin
         .from("reservations")
         .update({ sin_cubrir_avisado_at: ahora.toISOString() })
         .eq("id", p.id)
         .is("sin_cubrir_avisado_at", null)
+        .select("id")
       if (marcaErr) { resumen.paseo_sin_cubrir.errores.push(marcaErr.message); continue }
+      if (!marcadas || marcadas.length === 0) continue // otra corrida ya lo tomó
 
       const tel = p.manual_client_phone ?? (await telefonoDe(admin, p.user_id))
       if (!tel) continue
       if (esRepetido("paseo_sin_cubrir", tel)) continue
-      const res = await sendWhatsAppTemplate("paseo_sin_cubrir", tel, [fmtHora(p.scheduled_at)])
-      if ("ok" in res && res.ok) resumen.paseo_sin_cubrir.enviados++
+      const res = await enviarWhatsApp(admin, {
+        plantilla: "paseo_sin_cubrir",
+        telefono: tel,
+        variables: [fmtHora(p.scheduled_at)],
+        clave: `paseo_sin_cubrir|${p.id}`,
+        motivo: "2 h antes sin paseador",
+        profileId: p.manual_client_phone ? null : p.user_id,
+        reservationId: p.id,
+      })
+      if (salio(res)) resumen.paseo_sin_cubrir.enviados++
+      else if (res.motivo === "ya se había mandado" || esDefinitivo(res)) continue
       else {
         resumen.paseo_sin_cubrir.errores.push(motivo(res))
         // No salió: se devuelve la marca para que el siguiente intento lo tome
@@ -157,27 +199,40 @@ export async function GET(req: NextRequest) {
 
     for (const p of paseos ?? []) {
       if (!p.scheduled_at || !p.walker_id) continue
-      const clave = `${p.walker_id}|${new Date(p.scheduled_at).toLocaleDateString("es-MX", { timeZone: TZ })}`
-      if (yaAvisado.has(clave)) continue
-      yaAvisado.add(clave)
+      const dia = new Date(p.scheduled_at).toLocaleDateString("es-MX", { timeZone: TZ })
+      const clave = `${p.walker_id}|${dia}`
 
-      const { error: marcaErr } = await admin
+      // Se marca TAMBIÉN el paseo que se salta por no ser el primero del día.
+      // Antes quedaba sin marca y la corrida siguiente (15 min después, aún
+      // dentro de la ventana) le mandaba su propio recordatorio: salía uno por
+      // paseo en vez de uno por paseador por día.
+      const { data: marcadas, error: marcaErr } = await admin
         .from("reservations")
         .update({ recordatorio_paseador_at: ahora.toISOString() })
         .eq("id", p.id)
         .is("recordatorio_paseador_at", null)
+        .select("id")
       if (marcaErr) { resumen.recordatorio_paseador.errores.push(marcaErr.message); continue }
+      if (!marcadas || marcadas.length === 0) continue // otra corrida ya lo tomó
+      if (yaAvisado.has(clave)) continue
+      yaAvisado.add(clave)
 
       const { data: w } = await admin
         .from("profiles").select("full_name, phone").eq("id", p.walker_id).single()
       if (!w?.phone) continue
       if (esRepetido("recordatorio_paseador", w.phone)) continue
-      const res = await sendWhatsAppTemplate("recordatorio_paseador", w.phone, [
-        w.full_name ?? "",
-        fmtHora(p.scheduled_at),
-        p.pickup_address ?? "Ver en tu panel",
-      ])
-      if ("ok" in res && res.ok) resumen.recordatorio_paseador.enviados++
+      const res = await enviarWhatsApp(admin, {
+        plantilla: "recordatorio_paseador",
+        telefono: w.phone,
+        variables: [w.full_name ?? "", fmtHora(p.scheduled_at), p.pickup_address ?? "Ver en tu panel"],
+        // Uno por paseador por día, aunque dos corridas se encimen
+        clave: `recordatorio_paseador|${p.walker_id}|${dia}`,
+        motivo: "2 h antes de su primer paseo del día",
+        profileId: p.walker_id,
+        reservationId: p.id,
+      })
+      if (salio(res)) resumen.recordatorio_paseador.enviados++
+      else if (res.motivo === "ya se había mandado" || esDefinitivo(res)) continue
       else {
         resumen.recordatorio_paseador.errores.push(motivo(res))
         await admin.from("reservations").update({ recordatorio_paseador_at: null }).eq("id", p.id)
@@ -192,7 +247,7 @@ export async function GET(req: NextRequest) {
     const hace3 = new Date(ahora.getTime() - 3 * 24 * 60 * 60000)
     const { data: paseos, error: qErr } = await admin
       .from("reservations")
-      .select("id, user_id, scheduled_at, price_mxn, manual_client_phone, pago_vencido_avisos, pago_vencido_ultimo_at")
+      .select("id, user_id, scheduled_at, price_mxn, manual_client_phone, pago_vencido_avisos, pago_vencido_ultimo_at, package_id")
       .eq("status", "completada")
       .eq("payment_status", "pendiente")
       .gt("price_mxn", 0)
@@ -207,15 +262,23 @@ export async function GET(req: NextRequest) {
     // Un cliente con tres paseos sin pagar recibía tres cobros seguidos.
     // Se junta todo lo suyo en un solo mensaje con el total y la fecha del
     // paseo más viejo, y se marcan todas sus reservas de esa tanda.
-    type Deuda = { ids: string[]; total: number; masViejo: string; tel: string | null }
+    type Deuda = { ids: string[]; total: number; masViejo: string; tel: string | null; userId: string | null; aviso: number }
     const porCliente = new Map<string, Deuda>()
+    const hace7 = new Date(ahora.getTime() - 7 * 24 * 60 * 60000)
 
     for (const p of paseos ?? []) {
       if (!p.scheduled_at) continue
-      // El segundo aviso va a los 7 días del paseo, no a los 7 del primero.
+      // El precio vive en el paseo 1 del paquete, pero la deuda empieza cuando
+      // TERMINA el paquete. Antes se contaba desde el día 1 y al cliente de
+      // una semana le llegaba "pago pendiente" a media semana.
+      const fin = await finDelPaquete(admin, p.package_id, p.scheduled_at)
+      if (new Date(fin) > hace3) continue
       if (p.pago_vencido_avisos >= 1) {
-        const hace7 = new Date(ahora.getTime() - 7 * 24 * 60 * 60000)
-        if (new Date(p.scheduled_at) > hace7) continue
+        // El segundo aviso: a los 7 días del fin y al menos 3 después del
+        // primero. Antes, en un paseo ya viejo, los dos salían el mismo día.
+        if (new Date(fin) > hace7) continue
+        const hace3Aviso = new Date(ahora.getTime() - 3 * 24 * 60 * 60000)
+        if (p.pago_vencido_ultimo_at && new Date(p.pago_vencido_ultimo_at) > hace3Aviso) continue
       }
 
       const tel = p.manual_client_phone ?? (await telefonoDe(admin, p.user_id))
@@ -226,12 +289,15 @@ export async function GET(req: NextRequest) {
         previo.ids.push(p.id)
         previo.total += p.price_mxn ?? 0
         if (p.scheduled_at < previo.masViejo) previo.masViejo = p.scheduled_at
+        previo.aviso = Math.max(previo.aviso, p.pago_vencido_avisos + 1)
       } else {
         porCliente.set(tel, {
           ids: [p.id],
           total: p.price_mxn ?? 0,
           masViejo: p.scheduled_at,
           tel,
+          userId: p.manual_client_phone ? null : p.user_id,
+          aviso: p.pago_vencido_avisos + 1,
         })
       }
     }
@@ -244,7 +310,7 @@ export async function GET(req: NextRequest) {
       for (const id of deuda.ids) {
         const fila = (paseos ?? []).find((x) => x.id === id)
         const original = fila?.pago_vencido_avisos ?? 0
-        const { error: marcaErr } = await admin
+        const { data: marcadas, error: marcaErr } = await admin
           .from("reservations")
           .update({
             pago_vencido_avisos: original + 1,
@@ -252,21 +318,39 @@ export async function GET(req: NextRequest) {
           })
           .eq("id", id)
           .eq("pago_vencido_avisos", original)
-        if (marcaErr) {
-          resumen.pago_vencido.errores.push(marcaErr.message)
+          .select("id")
+        if (marcaErr || !marcadas || marcadas.length === 0) {
+          // Error, u otra corrida ya lo marcó: esta no cobra
+          if (marcaErr) resumen.pago_vencido.errores.push(marcaErr.message)
           falloMarca = true
           break
         }
         antes.set(id, { avisos: original, ultimo: fila?.pago_vencido_ultimo_at ?? null })
       }
-      if (falloMarca) continue
+      if (falloMarca) {
+        for (const [id, previo] of antes) {
+          await admin
+            .from("reservations")
+            .update({ pago_vencido_avisos: previo.avisos, pago_vencido_ultimo_at: previo.ultimo })
+            .eq("id", id)
+        }
+        continue
+      }
 
       if (esRepetido("pago_vencido", tel)) continue
-      const res = await sendWhatsAppTemplate("pago_vencido", tel, [
-        `MX$${deuda.total}`,
-        fmtFecha(deuda.masViejo),
-      ])
-      if ("ok" in res && res.ok) resumen.pago_vencido.enviados++
+      const res = await enviarWhatsApp(admin, {
+        plantilla: "pago_vencido",
+        telefono: tel,
+        variables: [`MX$${deuda.total}`, fmtFecha(deuda.masViejo)],
+        clave: `pago_vencido|${[...deuda.ids].sort().join(",")}|${deuda.aviso}`,
+        motivo: `pago vencido, aviso ${deuda.aviso}`,
+        profileId: deuda.userId,
+        reservationId: deuda.ids[0],
+      })
+      if (salio(res)) resumen.pago_vencido.enviados++
+      // Número silenciado, o ya salió antes: la marca se queda (si se
+      // devolviera, cada corrida lo volvería a intentar)
+      else if (res.motivo === "ya se había mandado" || esDefinitivo(res)) continue
       else {
         resumen.pago_vencido.errores.push(motivo(res))
         // Se deja como estaba: si ya traía un aviso previo, su fecha se respeta
@@ -289,7 +373,7 @@ export async function GET(req: NextRequest) {
 
     const { data: paseos, error: qErr } = await admin
       .from("reservations")
-      .select("id, user_id, scheduled_at")
+      .select("id, user_id, scheduled_at, package_id")
       .eq("status", "completada")
       .is("resena_solicitada_at", null)
       .not("user_id", "is", null)
@@ -302,6 +386,12 @@ export async function GET(req: NextRequest) {
     if (qErr) resumen.solicitud_resena.errores.push(`consulta: ${qErr.message}`)
 
     for (const p of paseos ?? []) {
+      // En paquetes, solo cuenta el ÚLTIMO día: antes la petición salía un día
+      // después del día 1, con la semana a medias.
+      if (p.package_id && p.scheduled_at) {
+        const fin = await finDelPaquete(admin, p.package_id, p.scheduled_at)
+        if (fin !== p.scheduled_at) continue
+      }
       // Cliente nuevo = nunca se le ha pedido reseña en NINGÚN paseo suyo.
       // Se consulta por user_id, no por reserva: así un cliente recurrente
       // no recibe la petición otra vez aunque sea otro paquete.
@@ -315,18 +405,30 @@ export async function GET(req: NextRequest) {
         continue
       }
 
-      const { error: marcaErr } = await admin
+      const { data: marcadas, error: marcaErr } = await admin
         .from("reservations")
         .update({ resena_solicitada_at: ahora.toISOString() })
         .eq("id", p.id)
         .is("resena_solicitada_at", null)
+        .select("id")
       if (marcaErr) { resumen.solicitud_resena.errores.push(marcaErr.message); continue }
+      if (!marcadas || marcadas.length === 0) continue // otra corrida ya lo tomó
 
       const tel = await telefonoDe(admin, p.user_id)
       if (!tel) continue
       if (esRepetido("solicitud_resena", tel)) continue
-      const res = await sendWhatsAppTemplate("solicitud_resena", tel, [])
-      if ("ok" in res && res.ok) resumen.solicitud_resena.enviados++
+      const res = await enviarWhatsApp(admin, {
+        plantilla: "solicitud_resena",
+        telefono: tel,
+        variables: [],
+        // Una por cliente, para siempre
+        clave: `solicitud_resena|${p.user_id}`,
+        motivo: "reseña, cliente nuevo",
+        profileId: p.user_id,
+        reservationId: p.id,
+      })
+      if (salio(res)) resumen.solicitud_resena.enviados++
+      else if (res.motivo === "ya se había mandado" || esDefinitivo(res)) continue
       else {
         resumen.solicitud_resena.errores.push(motivo(res))
         await admin.from("reservations").update({ resena_solicitada_at: null }).eq("id", p.id)
@@ -334,7 +436,40 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, corridoEn: ahora.toISOString(), resumen })
+  // ============================================================
+  // 5. vacantes — la siguiente ola si nadie tomó el paseo
+  // ============================================================
+  let vacantes: ResumenOla[] = []
+  try {
+    vacantes = await mantenimientoDeVacantes(admin)
+  } catch (e) {
+    console.error("[cron/avisos] olas:", e instanceof Error ? e.message : e)
+  }
+
+  return NextResponse.json({
+    ok: true,
+    corridoEn: ahora.toISOString(),
+    reloj: esGitHub ? "github" : esPgCron ? "pg_cron" : "sin llave",
+    resumen,
+    vacantes,
+  })
+}
+
+/** Fecha del último día del paquete (o la del paseo, si es suelto). */
+async function finDelPaquete(
+  admin: ReturnType<typeof createAdminClient>,
+  packageId: string | null,
+  scheduledAt: string,
+): Promise<string> {
+  if (!packageId) return scheduledAt
+  const { data } = await admin
+    .from("reservations")
+    .select("scheduled_at")
+    .eq("package_id", packageId)
+    .neq("status", "cancelada")
+    .order("scheduled_at", { ascending: false })
+    .limit(1)
+  return (data?.[0]?.scheduled_at as string | undefined) ?? scheduledAt
 }
 
 async function telefonoDe(
@@ -349,6 +484,7 @@ async function telefonoDe(
 function motivo(res: unknown): string {
   if (typeof res === "object" && res !== null) {
     const r = res as Record<string, unknown>
+    if (typeof r.motivo === "string") return r.motivo
     if (typeof r.error === "string") return r.error
     if (typeof r.reason === "string") return r.reason
   }

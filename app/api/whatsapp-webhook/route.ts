@@ -55,6 +55,11 @@ const ERRORES_DEL_EMISOR = new Set([
   "63021", // Parámetro del canal inválido (configuración nuestra)
   "21606", // El "From" no es un número válido de la cuenta
   "21610", // El destinatario nos bloqueó por STOP: no es que el número no sirva
+  // Estos tres silenciaron a 20 paseadores con teléfono válido (sep-2026),
+  // incluidos 2 de los pocos que sí toman paseos:
+  "63049", // Meta decidió no entregar ese mensaje de marketing (tope por persona)
+  "63032", // Limitación de WhatsApp para ese usuario, no un número malo
+  "63016", // Texto libre fuera de la ventana de 24 h: falla nuestra
 ])
 
 export async function POST(req: NextRequest) {
@@ -88,6 +93,23 @@ export async function POST(req: NextRequest) {
     const ESTADOS_DE_ENVIO = ["queued", "sending", "sent", "delivered", "read", "failed", "undelivered"]
     const estado = String(params.MessageStatus ?? params.SmsStatus ?? "").toLowerCase()
     if (estado && ESTADOS_DE_ENVIO.includes(estado)) {
+      // Bitácora (migración 0026): cómo terminó cada mensaje. De aquí sale el
+      // medidor de consumo. Un "sent" tardío no pisa un "delivered" o "read".
+      if (sid) {
+        const orden = ["queued", "sending", "sent", "delivered", "read"]
+        const cambios: Record<string, string> = { estado }
+        if (params.ErrorCode) cambios.error_code = String(params.ErrorCode)
+        // Si no llegó, se suelta el candado (resultado 'error'): así, si luego
+        // se reasigna el paseo al mismo paseador, sus datos sí vuelven a salir
+        if (estado === "failed" || estado === "undelivered") cambios.resultado = "error"
+        let q = admin.from("wa_envios").update(cambios).eq("message_sid", sid)
+        if (orden.includes(estado)) {
+          // Solo avanza: puede pisar estados anteriores, nunca los posteriores
+          const puedePisar = orden.slice(0, orden.indexOf(estado) + 1)
+          q = q.or(`estado.is.null,estado.in.(${puedePisar.join(",")})`)
+        }
+        await q.then(() => {}, () => {})
+      }
       const destino = String(params.To ?? "").replace("whatsapp:", "").replace(/\D/g, "")
       if (destino) {
         if (estado === "failed" || estado === "undelivered") {

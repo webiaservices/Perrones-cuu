@@ -1,8 +1,9 @@
 {
+  "id": "/",
   "name": "Perrones Cuu",
   "short_name": "Perrones",
-  "description": "Paseadores certificados en Ciudad Chihuahua",
-  "start_url": "/",
+  "description": "Paseadores verificados en Ciudad Chihuahua",
+  "start_url": "/panel",
   "display": "standalone",
   "background_color": "#f6fbfb",
   "theme_color": "#3DCABD",

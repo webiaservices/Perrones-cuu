@@ -3,13 +3,17 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { getCaller } from "@/lib/api-auth"
 import { BRAND } from "@/lib/constants"
 import { EMAIL_LOGO_IMG } from "@/lib/email-brand"
-import { sendWhatsAppTemplate } from "@/lib/whatsapp"
+import { enviarWhatsApp } from "@/lib/wa-envios"
 
 /**
- * Manda confirmación por correo al cliente (dueño).
+ * Avisa al cliente (correo + WhatsApp) y, al asignar, al paseador.
  * Se llama en 2 momentos:
  *   - kind=reservada: cuando el dueño confirma la reserva
- *   - kind=asignada: cuando un paseador acepta el paseo
+ *   - kind=asignada: cuando un paseador acepta el paseo o el admin lo asigna
+ *
+ * Cada WhatsApp lleva candado (clave) en lib/wa-envios: antes el dueño o el
+ * paseador podían volver a llamar esta ruta y cada llamada eran 2 mensajes
+ * pagados más. Ahora el mismo aviso del mismo paquete sale una sola vez.
  */
 export async function POST(req: NextRequest) {
   const RESEND_API_KEY = process.env.RESEND_API_KEY
@@ -29,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     const { data: reservation, error: resErr } = await admin
       .from("reservations")
-      .select("id, plan_name, dogs_count, price_mxn, status, scheduled_at, zone, pickup_address, dog_name, dog_size, user_id, walker_id, package_id")
+      .select("id, plan_name, dogs_count, price_mxn, status, scheduled_at, zone, pickup_address, dog_name, dog_size, user_id, walker_id, package_id, manual_client_name, manual_client_phone")
       .eq("id", reservationId)
       .single()
 
@@ -37,26 +41,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Reserva no encontrada" }, { status: 404 })
     }
 
-    // Solo el dueño, el paseador asignado o un admin pueden disparar este correo
+    // Solo el dueño, el paseador asignado o un admin pueden disparar este aviso
     if (!caller.isAdmin && reservation.user_id !== caller.id && reservation.walker_id !== caller.id) {
       return NextResponse.json({ error: "No autorizado" }, { status: 403 })
     }
 
-    // Email del dueño
-    const { data: u } = await admin.auth.admin.getUserById(reservation.user_id)
-    const clienteEmail = u?.user?.email
-    if (!clienteEmail) {
-      return NextResponse.json({ error: "Cliente sin email" }, { status: 400 })
-    }
+    const isAssigned = kind === "asignada"
+    // Cliente manual (sin cuenta): el user_id es el del ADMIN. Antes el
+    // paseador recibía el nombre y el teléfono del admin como si fuera el
+    // cliente, y el correo "tu paseador aceptó" le llegaba a Endy.
+    const esManual = !!reservation.manual_client_name
 
     // Nombre y teléfono del cliente
-    const { data: profile } = await admin
-      .from("profiles")
-      .select("full_name, phone")
-      .eq("id", reservation.user_id)
-      .single()
-    const clienteNombre = profile?.full_name ?? null
-    const clienteTelefono = profile?.phone ?? null
+    let clienteNombre: string | null = null
+    let clienteTelefono: string | null = null
+    if (esManual) {
+      clienteNombre = reservation.manual_client_name
+      clienteTelefono = reservation.manual_client_phone ?? null
+    } else {
+      const { data: profile } = await admin
+        .from("profiles")
+        .select("full_name, phone")
+        .eq("id", reservation.user_id)
+        .single()
+      clienteNombre = profile?.full_name ?? null
+      clienteTelefono = profile?.phone ?? null
+    }
 
     // Nombre del paseador si ya está asignado
     let walkerName: string | null = null
@@ -71,11 +81,6 @@ export async function POST(req: NextRequest) {
       walkerPhone = w?.phone ?? null
     }
 
-    if (!RESEND_API_KEY) {
-      console.warn("[notify-cliente] RESEND_API_KEY no configurada")
-      return NextResponse.json({ skipped: true })
-    }
-
     const scheduledLabel = reservation.scheduled_at
       ? new Date(reservation.scheduled_at).toLocaleString("es-MX", {
           weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit",
@@ -83,56 +88,85 @@ export async function POST(req: NextRequest) {
         })
       : "Por confirmar"
 
-    const isAssigned = kind === "asignada"
-    const subject = isAssigned
-      ? `✅ ${walkerName ?? "Un paseador"} aceptó el paseo de ${reservation.dog_name ?? "tu perrito"}`
-      : `🐶 Recibimos tu reserva en ${BRAND.name}`
-
-    const html = isAssigned
-      ? buildAsignadaHtml({ clienteNombre, walkerName, reservation, scheduledLabel, site: SITE })
-      : buildReservadaHtml({ clienteNombre, reservation, scheduledLabel, site: SITE })
-
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: RESEND_FROM, to: [clienteEmail], subject, html }),
-    })
+    // ---------- Correo al cliente (solo clientes con cuenta) ----------
+    // Ya no condiciona al WhatsApp: antes, sin correo o sin Resend, la ruta
+    // regresaba antes y el WhatsApp tampoco salía, sin avisar a nadie.
+    let correoEnviado = false
+    if (!esManual && RESEND_API_KEY) {
+      const { data: u } = await admin.auth.admin.getUserById(reservation.user_id)
+      const clienteEmail = u?.user?.email
+      if (clienteEmail) {
+        const subject = isAssigned
+          ? `✅ ${walkerName ?? "Un paseador"} aceptó el paseo de ${reservation.dog_name ?? "tu perrito"}`
+          : `🐶 Recibimos tu reserva en ${BRAND.name}`
+        const html = isAssigned
+          ? buildAsignadaHtml({ clienteNombre, walkerName, reservation, scheduledLabel, site: SITE })
+          : buildReservadaHtml({ clienteNombre, reservation, scheduledLabel, site: SITE })
+        const res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ from: RESEND_FROM, to: [clienteEmail], subject, html }),
+        }).catch(() => null)
+        correoEnviado = !!res?.ok
+      }
+    }
 
     // ---------- WhatsApp ----------
     // Los textos y el orden de variables están en lib/whatsapp-plantillas.ts.
-    let waResult: unknown = { skipped: true, reason: "sin teléfono" }
-    if (clienteTelefono) {
+    const paquete = reservation.package_id ?? reservation.id
+    let waResult: unknown = { skipped: true, reason: esManual ? "cliente manual" : "sin teléfono" }
+    if (clienteTelefono && !esManual) {
       if (isAssigned) {
         // paseador_asignado: {{1}} paseador · {{2}} fecha y hora
-        waResult = await sendWhatsAppTemplate("paseador_asignado", clienteTelefono, [
-          walkerName ?? "Su paseador",
-          scheduledLabel,
-        ])
+        waResult = await enviarWhatsApp(admin, {
+          plantilla: "paseador_asignado",
+          telefono: clienteTelefono,
+          variables: [walkerName ?? "Su paseador", scheduledLabel],
+          clave: `paseador_asignado|${paquete}|${reservation.walker_id ?? "-"}`,
+          motivo: "paseador asignado",
+          profileId: reservation.user_id,
+          reservationId: reservation.id,
+        })
       } else {
         // paseo_confirmado: {{1}} nombre · {{2}} LISTA de fechas, una por renglón.
         // Endy la pidió así porque un paquete son varios días y mandar solo la
         // primera fecha hacía que el cliente creyera que era un paseo suelto.
-        waResult = await sendWhatsAppTemplate("paseo_confirmado", clienteTelefono, [
-          clienteNombre ?? "",
-          await listaDeFechas(admin, reservation),
-        ])
+        waResult = await enviarWhatsApp(admin, {
+          plantilla: "paseo_confirmado",
+          telefono: clienteTelefono,
+          variables: [clienteNombre ?? "", await listaDeFechas(admin, reservation)],
+          clave: `paseo_confirmado|${paquete}`,
+          motivo: "reserva recibida",
+          profileId: reservation.user_id,
+          reservationId: reservation.id,
+        })
       }
     }
 
     // paseador_acepta: al PASEADOR, con los datos del dueño y el manual.
     // Solo al aceptar — nunca a quien apenas vio el paseo disponible.
+    // Es el ÚNICO WhatsApp que recibe el paseador al quedar asignado (antes el
+    // admin le mandaba además un "se abrió una vacante" que ya era suyo).
     let waPaseador: unknown = { skipped: true, reason: "no aplica" }
-    if (isAssigned && walkerPhone) {
-      waPaseador = await sendWhatsAppTemplate("paseador_acepta", walkerPhone, [
-        walkerName ?? "",
-        clienteNombre ?? "Cliente",
-        clienteTelefono ?? "Ver en el panel",
-        reservation.pickup_address ?? "Ver en el panel",
-        await listaDeFechas(admin, reservation),
-      ])
+    if (isAssigned && walkerPhone && reservation.walker_id) {
+      waPaseador = await enviarWhatsApp(admin, {
+        plantilla: "paseador_acepta",
+        telefono: walkerPhone,
+        variables: [
+          walkerName ?? "",
+          clienteNombre ?? "Cliente",
+          clienteTelefono ?? "Ver en el panel",
+          reservation.pickup_address ?? "Ver en el panel",
+          await listaDeFechas(admin, reservation),
+        ],
+        clave: `paseador_acepta|${paquete}|${reservation.walker_id}`,
+        motivo: "paseo asignado al paseador",
+        profileId: reservation.walker_id,
+        reservationId: reservation.id,
+      })
     }
 
-    return NextResponse.json({ ok: true, sent: res.ok, kind, whatsapp: waResult, whatsappPaseador: waPaseador })
+    return NextResponse.json({ ok: true, sent: correoEnviado, kind, whatsapp: waResult, whatsappPaseador: waPaseador })
   } catch (e: unknown) {
     console.error("notify-cliente error:", e)
     const msg = e instanceof Error ? e.message : "Error"

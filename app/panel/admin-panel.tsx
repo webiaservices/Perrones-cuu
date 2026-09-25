@@ -31,7 +31,7 @@ import { Input } from "@/components/ui/input"
 import { LogoCircle } from "@/components/logo-circle"
 import { createClient } from "@/lib/supabase/client"
 import { STATUS_LABELS, ADMIN_SHARE, adminFeeFor, walkerPayoutFor, PLANS } from "@/lib/constants"
-import { CIUDADES, type CiudadId } from "@/lib/ciudades"
+import { CIUDADES, ZONAS_POR_CIUDAD, type CiudadId } from "@/lib/ciudades"
 import { CLIENT_CONTRACT, WALKER_CONTRACT, CONTRACT_VERSION } from "@/lib/contract-text"
 import { mensajesParaReserva, linkWhatsApp } from "@/lib/whatsapp-manual"
 
@@ -216,7 +216,7 @@ export function AdminPanel({
     numero?: string
     nombreNegocio?: string
     calidad?: string
-    plantillas: { name: string; desc: string; estado: string }[]
+    plantillas: { name: string; desc: string; estado: string; categoria?: string | null }[]
   }
   const [waStatus, setWaStatus] = useState<WaStatus | null>(null)
   const [waLoading, setWaLoading] = useState(false)
@@ -476,6 +476,16 @@ export function AdminPanel({
       return ta - tb
     })
 
+    // La ciudad decide a qué paseadores se les avisa. Antes el paseo nacía
+    // siempre como "chihuahua" (el valor por defecto de la columna), así que
+    // uno de CDMX se le anunciaba a la ciudad equivocada.
+    const ciudadPaseo =
+      clientMode === "registered"
+        ? (users.find((u) => u.id === newPaseo.user_id)?.city ?? "chihuahua")
+        : ZONAS_POR_CIUDAD.cdmx.filter((z) => z !== "Otra").includes(newPaseo.zone)
+          ? "cdmx"
+          : "chihuahua"
+
     const rows = ordered.map((slot, i) => {
       const at = new Date(`${slot.date}T${slot.startHour}:00`)
       const until = new Date(at.getTime() + 60 * 60 * 1000)
@@ -502,6 +512,7 @@ export function AdminPanel({
         // null = se calcula 30% del precio automáticamente
         admin_fee_mxn: adminFee,
         zone: newPaseo.zone,
+        city: ciudadPaseo,
         pickup_address: newPaseo.pickup_address,
         dog_name: newPaseo.dog_name,
         dog_breed: newPaseo.dog_breed || null,
@@ -529,8 +540,11 @@ export function AdminPanel({
     setClientMode("registered")
     setShowCreateModal(false)
 
-    // Solo notifica por correo si el cliente está registrado (los manuales no tienen email)
-    if (clientMode === "registered" && firstRow) {
+    // Con paseador asignado, notify-cliente avisa al cliente (si tiene cuenta)
+    // y le manda al paseador paseador_acepta con los datos del dueño, también
+    // si el cliente es manual: antes el paseador de un cliente manual solo
+    // recibía un "se abrió una vacante" sin dirección ni teléfono.
+    if (firstRow && (clientMode === "registered" || assignedNow)) {
       if (assignedNow) {
         fetch("/api/notify-cliente", {
           method: "POST",
@@ -684,13 +698,32 @@ export function AdminPanel({
           : r,
       ),
     )
-    // Al hacerlo público, avisa a los paseadores de la zona (si sigue buscando)
+    // Al hacerlo público, avisa a los paseadores (si sigue buscando). Se le
+    // dice a Endy qué salió: antes la respuesta se tiraba y, si no se avisó a
+    // nadie, él no tenía forma de saberlo.
     if (vis === "public" && target.status === "buscando_paseador" && !target.walker_id) {
-      fetch("/api/notify-paseadores", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reservationId: target.id }),
-      }).catch(() => {})
+      try {
+        const res = await fetch("/api/notify-paseadores", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reservationId: target.id }),
+        })
+        const r = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setAvisoError(`El paseo quedó público, pero no se pudo avisar a los paseadores: ${r.error ?? `error ${res.status}`}`)
+        } else if ((r.ola ?? 0) > 0) {
+          const total = (r.push ?? 0) + (r.whatsapp ?? 0) + (r.correo ?? 0)
+          setAvisoInfo(
+            total > 0
+              ? `Paseo publicado. Se avisó a ${r.push ?? 0} por notificación al celular (gratis), ${r.whatsapp ?? 0} por WhatsApp y ${r.correo ?? 0} por correo. Si en 45 minutos nadie lo toma, se avisa a más paseadores automáticamente.`
+              : `Paseo publicado, pero no hay paseadores disponibles para avisarles en esa ciudad. Ya está visible en sus paneles.`,
+          )
+        } else if (r.reason) {
+          setAvisoInfo(`Paseo publicado. No se volvió a avisar: ${r.reason}.`)
+        }
+      } catch {
+        setAvisoError("El paseo quedó público, pero se cortó la conexión al avisar a los paseadores. Vuelve a intentarlo.")
+      }
     }
   }
 
@@ -1220,6 +1253,8 @@ export function AdminPanel({
    * falla aterriza aquí y se pinta arriba, donde no se puede no ver.
    */
   const [avisoError, setAvisoError] = useState<string | null>(null)
+  /** Confirmaciones que conviene que Endy lea (p.ej. a cuántos se avisó). */
+  const [avisoInfo, setAvisoInfo] = useState<string | null>(null)
   const explicar = (msg: string, queHacia: string) => {
     if (/No puedes cancelar un paseo/i.test(msg)) {
       return `${queHacia}: uno de los paseos de ese paquete ya empezó o ya se completó, y por eso no se puede cancelar completo.`
@@ -1578,6 +1613,16 @@ export function AdminPanel({
               onClick={() => setAvisoError(null)}
               className="text-sm font-bold text-destructive underline"
             >
+              Cerrar
+            </button>
+          </div>
+        )}
+
+        {avisoInfo && (
+          <div className="sticky top-2 z-40 mt-4 flex items-start gap-3 rounded-2xl border-2 border-primary/40 bg-primary/10 px-4 py-3">
+            <span className="text-lg leading-none">📣</span>
+            <p className="flex-1 text-sm font-semibold">{avisoInfo}</p>
+            <button onClick={() => setAvisoInfo(null)} className="text-sm font-bold underline">
               Cerrar
             </button>
           </div>
@@ -2724,6 +2769,13 @@ export function AdminPanel({
                         <div>
                           <p className="font-bold">{p.desc}</p>
                           <p className="text-xs text-muted-foreground">{p.name}</p>
+                          {/* Meta puede reclasificar una plantilla por su cuenta; como
+                              publicidad cada mensaje cuesta varias veces más. */}
+                          {p.categoria === "MARKETING" && (
+                            <p className="mt-1 text-xs font-semibold text-amber-700">
+                              WhatsApp la clasifica como publicidad: cada mensaje cuesta varias veces más.
+                            </p>
+                          )}
                         </div>
                         <span
                           className={`rounded-full px-3 py-1 text-xs font-bold ${

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { BRAND, walkerPayoutFor } from "@/lib/constants"
 import { EMAIL_LOGO_IMG } from "@/lib/email-brand"
-import { sendWhatsAppTemplate } from "@/lib/whatsapp"
 import { getCaller } from "@/lib/api-auth"
 
 /**
@@ -32,11 +31,6 @@ export async function POST(req: NextRequest) {
 
     const { data: u } = await admin.auth.admin.getUserById(r.walker_id)
     const email = u?.user?.email
-    const { data: walkerProfile } = await admin
-      .from("profiles")
-      .select("full_name, phone")
-      .eq("id", r.walker_id)
-      .single()
     if (!email) return NextResponse.json({ skipped: true, reason: "sin email" })
     if (!RESEND_API_KEY) return NextResponse.json({ skipped: true, reason: "sin Resend" })
 
@@ -83,18 +77,12 @@ export async function POST(req: NextRequest) {
       }),
     })
 
-    // WhatsApp al paseador
-    let wa: unknown = { skipped: true }
-    if (walkerProfile?.phone) {
-      // {{3}} es el pago semanal, no la fecha (ver nota en notify-paseadores)
-      wa = await sendWhatsAppTemplate("paseo_disponible", walkerProfile.phone, [
-        walkerProfile.full_name ?? "",
-        r.zone ?? "",
-        `MX$${ganancia.toLocaleString("es-MX")}`,
-      ])
-    }
-
-    return NextResponse.json({ ok: true, whatsapp: wa })
+    // Sin WhatsApp aquí, a propósito. Antes se le mandaba paseo_disponible
+    // ("se abrió una vacante, puede tomarla") a alguien a quien el paseo YA le
+    // pertenecía, y en la misma acción notify-cliente le mandaba paseador_acepta
+    // con los datos del dueño: dos mensajes pagados, uno de ellos falso. El
+    // WhatsApp del paseador asignado es solo paseador_acepta (notify-cliente).
+    return NextResponse.json({ ok: true })
   } catch (e: unknown) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Error" }, { status: 500 })
   }
