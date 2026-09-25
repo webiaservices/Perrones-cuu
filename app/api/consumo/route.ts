@@ -165,6 +165,10 @@ export async function GET(req: NextRequest) {
       paseadoresConAvisoGratis: suscritos ?? 0,
     },
     tarifasUsd: USD,
+    // La categoría que Meta le puso a cada plantilla (marketing cuesta ~3 veces
+    // más que utility y además Meta limita cuántos de marketing recibe cada
+    // persona). Solo lo ve Webia.
+    categoriasMeta: categorias,
   }
 
   if (url.searchParams.get("json") === "1") return NextResponse.json(resumen)
