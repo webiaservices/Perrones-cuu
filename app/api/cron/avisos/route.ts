@@ -3,6 +3,9 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { enviarWhatsApp, type ResultadoEnvio } from "@/lib/wa-envios"
 import { mantenimientoDeVacantes, type ResumenOla } from "@/lib/vacantes"
 
+// Anunciar una vacante a ~80 paseadores tarda más que los 10 s por omisión
+export const maxDuration = 60
+
 /**
  * Cron de avisos por tiempo. Corre cada 15 minutos.
  *

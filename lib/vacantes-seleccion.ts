@@ -3,11 +3,9 @@
  * ni red) para poder probarla con datos inventados: pruebas/vacantes.test.ts.
  *
  * Lo que pesó en las reglas (medido del 25-ago al 24-sep-2026):
- *   - El aviso le llegaba por WhatsApp a 62 teléfonos y 57 nunca habían tomado
- *     un paseo. Cuatro a seis personas hacen todo el trabajo.
  *   - A los de Chihuahua les llegaban las vacantes de CDMX.
- *   - Se le pagaba el mensaje a gente que no ha aceptado el manual, y que por
- *     lo tanto NO puede tomar el paseo (accept-paseo la rechaza).
+ *   - Quien más toma vacantes son paseadores SIN paseos previos: por eso el
+ *     aviso va a todos y el orden solo decide quién va primero en la fila.
  */
 
 export type Paseador = {
@@ -91,7 +89,8 @@ export function elegirWhatsApp(
     const t = tel10(p.phone)
     if (t.length < 10) continue
     if ((p.wa_rebotes ?? 0) >= 2) continue
-    if (!p.manual_ok) continue
+    // Sin el manual aceptado SÍ se le avisa, como siempre: al querer tomar el
+    // paseo, su panel le pide aceptarlo y ahí mismo lo toma.
     if (ctx.yaAvisados.push.has(p.id) || ctx.yaAvisados.whatsapp.has(p.id)) continue
     if (vistos.has(t)) continue
     vistos.add(t)

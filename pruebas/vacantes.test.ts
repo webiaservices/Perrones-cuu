@@ -55,15 +55,21 @@ test("entre los que nunca han tomado uno, primero los de la misma zona", () => {
   assert.equal(elegidos[0].id, "cerca")
 })
 
-test("no se le paga WhatsApp a quien no puede tomar el paseo, ni a números malos", () => {
-  const sinManual = p({ manual_ok: false })
+test("no se le paga WhatsApp a números malos ni a baneados; sin manual SÍ se le avisa", () => {
+  const sinManual = p({ id: "sinManual", manual_ok: false })
   const rebota = p({ wa_rebotes: 2 })
   const sinTel = p({ phone: null })
   const telCorto = p({ phone: "12345" })
   const baneado = p({ banned: true })
   const bueno = p({ id: "bueno" })
   const elegidos = elegirWhatsApp([sinManual, rebota, sinTel, telCorto, baneado, bueno], ctx(), 10)
-  assert.deepEqual(elegidos.map((x) => x.id), ["bueno"])
+  assert.deepEqual(elegidos.map((x) => x.id).sort(), ["bueno", "sinManual"])
+})
+
+test("sin tope, la vacante le llega a TODOS los de la ciudad (como siempre)", () => {
+  const todos = Array.from({ length: 62 }, () => p())
+  const otraCiudad = Array.from({ length: 5 }, () => p({ city: "cdmx" }))
+  assert.equal(elegirWhatsApp([...todos, ...otraCiudad], ctx(), Number.POSITIVE_INFINITY).length, 62)
 })
 
 test("dos cuentas con el mismo teléfono reciben UN mensaje", () => {

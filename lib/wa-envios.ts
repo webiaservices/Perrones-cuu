@@ -33,6 +33,8 @@ export type EnvioWhatsApp = {
   motivo?: string
   profileId?: string | null
   reservationId?: string | null
+  /** false si quien llama ya filtró los números silenciados. */
+  revisarRebotes?: boolean
 }
 
 export type ResultadoEnvio = {
@@ -61,7 +63,7 @@ export async function enviarWhatsApp(admin: Admin, e: EnvioWhatsApp): Promise<Re
   if (telefono.length < 10) return { enviado: false, motivo: `número inválido: ${e.telefono}` }
 
   // 1. Número silenciado por rebotes
-  if (e.profileId) {
+  if (e.profileId && e.revisarRebotes !== false) {
     const { data: perfil } = await admin
       .from("profiles")
       .select("wa_rebotes")

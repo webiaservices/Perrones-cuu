@@ -7,38 +7,38 @@ import { enviarWhatsApp, notificacionesSimuladas, pausa, tel10 } from "@/lib/wa-
 import { elegirCorreo, elegirPush, elegirWhatsApp, type Contexto, type Paseador } from "@/lib/vacantes-seleccion"
 
 /**
- * Anuncio de vacantes a paseadores, por OLEADAS.
+ * Anuncio de vacantes a paseadores.
  *
- * Antes: cada vez que Endy hacía público un paseo salían ~62 WhatsApp pagados
- * en el mismo segundo, a todos los paseadores de las dos ciudades, y se
- * repetían completos si lo volvía a publicar. Era el 93% del gasto.
+ * La vacante le llega a TODOS los paseadores que la podrían tomar, igual que
+ * siempre. Se probó limitarla a los 5 con más paseos y los datos lo tumbaron:
+ * de las vacantes cubiertas hasta sep-2026, TODAS las tomaron paseadores sin
+ * ningún paseo previo, el grupo que ese límite dejaba fuera.
  *
- * Ahora:
- *   Ola 1 (al publicar)
- *     · aviso gratis al celular a TODOS los paseadores de la ciudad que lo
- *       activaron;
- *     · WhatsApp solo a los 5 con más probabilidad de tomarlo que no tengan
- *       el aviso gratis (quien sí toma paseos, de la misma zona, con manual);
- *     · correo a unos cuantos más (con tope: la cuenta de correo se comparte).
- *   Ola 2 (el reloj, si en 45 min nadie la tomó)
- *     · WhatsApp a los 10 siguientes y correo a otros tantos.
- *   Después de eso no se manda nada automático: la vacante sigue en el panel
- *   de todos y, si llega a 2 h sin paseador, el cliente recibe paseo_sin_cubrir
- *   como siempre.
+ * Lo que sí se quita es el desperdicio puro, lo que nadie puede aprovechar:
+ *   · la misma vacante mandada dos o tres veces (el 7-sep salió triple): a
+ *     nadie se le avisa dos veces de la misma vacante en 45 minutos;
+ *   · el propio Endy, que es quien la publica;
+ *   · paseadores de otra ciudad (una de CDMX no la puede tomar alguien de
+ *     Chihuahua);
+ *   · números que ya rebotaron dos veces.
  *
- * A nadie se le avisa dos veces de la misma vacante por el mismo canal
- * dentro de un mismo CICLO. Un ciclo nuevo empieza cuando la vacante se vuelve
- * a abrir: el paseador que la tomó la soltó (el reloj lo detecta solo), o Endy
- * la vuelve a publicar después de 45 minutos.
+ * Las perillas CUPO_WHATSAPP_POR_OLA / REANUNCIAR_AL_SOLTAR quedan por si Diego
+ * decide darle ventaja a los paseadores frecuentes (ver git: commit 4c6976b).
  */
 
 type Admin = SupabaseClient
 
-/** WhatsApp pagados por ola. La suma es el máximo por vacante. */
-export const CUPO_WHATSAPP_POR_OLA = [5, 10]
-export const CUPO_CORREO_POR_OLA = [15, 15]
+/** WhatsApp por ola: una sola ola, a todos (sin tope). */
+export const CUPO_WHATSAPP_POR_OLA = [Number.POSITIVE_INFINITY]
+/** Correo solo para quien no tiene WhatsApp válido; con tope porque la cuenta
+ *  de correo se comparte con otros sistemas (100 al día en total). */
+export const CUPO_CORREO_POR_OLA = [15]
+/** Volver a publicar antes de esto no le vuelve a mandar a nadie. */
 export const MINUTOS_ENTRE_OLAS = 45
 export const MAX_OLAS = CUPO_WHATSAPP_POR_OLA.length
+/** Antes nadie re-anunciaba solo una vacante soltada (lo hacía Endy al volver
+ *  a publicarla). Se deja igual. */
+export const REANUNCIAR_AL_SOLTAR = false
 
 export type ResumenOla = {
   ola: number
@@ -316,33 +316,44 @@ export async function anunciarVacante(
   let nWa = 0
   // Los que se enteraron gratis en esta ola ocupan su lugar en el cupo
   const gratisEnEstaOla = new Set([...alcanzados])
-  for (const p of elegirWhatsApp(paseadores, ctx, cupoWa, telefonosYa, gratisEnEstaOla)) {
-    if (!(await anotar(p.id, "whatsapp"))) continue
-    // paseo_disponible: {{1}} paseador · {{2}} zona · {{3}} PAGO SEMANAL.
-    // La 3ª va como pago y no como fecha a petición de Endy: sin la etiqueta,
-    // un paseador dividió el monto entre los perros y creyó que era una miseria.
-    const r = await enviarWhatsApp(admin, {
-      plantilla: "paseo_disponible",
-      telefono: p.phone!,
-      variables: [p.full_name ?? "", v.zone ?? "", `MX$${ganancia.toLocaleString("es-MX")}`],
-      clave: `${prefijoClave}${tel10(p.phone)}`,
-      motivo: `vacante ola ${ola}${ciclo > 1 ? ` (ciclo ${ciclo})` : ""}`,
-      profileId: p.id,
-      reservationId: v.id,
-    })
-    if (r.enviado) {
-      nWa++
-      alcanzados.add(p.id)
-    } else {
-      // No salió: se suelta para que la siguiente ola pueda intentarlo
-      await admin
-        .from("vacante_notificados")
-        .delete()
-        .eq("reservation_id", v.id)
-        .eq("profile_id", p.id)
-        .eq("canal", "whatsapp")
-    }
-    await pausa(300)
+  // Tandas de 10 en paralelo con una pausa corta entre tandas: ni la ráfaga de
+  // 60 en el mismo segundo que tumbó la cuenta el 19-ago, ni uno por uno (con
+  // ~80 destinatarios la función se cortaría a media lista por tiempo).
+  const elegidos = elegirWhatsApp(paseadores, ctx, cupoWa, telefonosYa, gratisEnEstaOla)
+  for (let i = 0; i < elegidos.length; i += 10) {
+    const tanda = elegidos.slice(i, i + 10)
+    await Promise.all(
+      tanda.map(async (p) => {
+        if (!(await anotar(p.id, "whatsapp"))) return
+        // paseo_disponible: {{1}} paseador · {{2}} zona · {{3}} PAGO SEMANAL.
+        // La 3ª va como pago y no como fecha a petición de Endy: sin la etiqueta,
+        // un paseador dividió el monto entre los perros y creyó que era una miseria.
+        const r = await enviarWhatsApp(admin, {
+          plantilla: "paseo_disponible",
+          telefono: p.phone!,
+          variables: [p.full_name ?? "", v.zone ?? "", `MX$${ganancia.toLocaleString("es-MX")}`],
+          clave: `${prefijoClave}${tel10(p.phone)}`,
+          motivo: `vacante ola ${ola}${ciclo > 1 ? ` (ciclo ${ciclo})` : ""}`,
+          profileId: p.id,
+          reservationId: v.id,
+          // Los rebotes ya se filtraron al elegir: no hace falta consultarlos otra vez
+          revisarRebotes: false,
+        })
+        if (r.enviado) {
+          nWa++
+          alcanzados.add(p.id)
+        } else {
+          // No salió: se suelta para que un anuncio posterior pueda intentarlo
+          await admin
+            .from("vacante_notificados")
+            .delete()
+            .eq("reservation_id", v.id)
+            .eq("profile_id", p.id)
+            .eq("canal", "whatsapp")
+        }
+      }),
+    )
+    if (i + 10 < elegidos.length) await pausa(250)
   }
 
   // ---- 3. Correo, con tope ----
@@ -405,7 +416,9 @@ export async function mantenimientoDeVacantes(
       .eq("reservations.visibility", "public")
       .is("reservations.walker_id", null),
   ).limit(20)
-  for (const r of soltadas ?? []) resultados.push(await anunciarVacante(admin, r.reservation_id as string, "reabrir"))
+  if (REANUNCIAR_AL_SOLTAR) {
+    for (const r of soltadas ?? []) resultados.push(await anunciarVacante(admin, r.reservation_id as string, "reabrir"))
+  }
 
   // 3. Siguiente ola, de la más vieja a la más nueva, solo de las abiertas
   const limite = new Date(Date.now() - MINUTOS_ENTRE_OLAS * 60000).toISOString()

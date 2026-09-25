@@ -78,10 +78,14 @@ try {
   if (await buscador.count()) await buscador.fill("PRUEBA WEBIA")
   const fila = pg.locator("tr", { hasText: CLIENTE }).first()
   await fila.waitFor({ timeout: 20000 })
+  const inicio = Date.now()
+  const respuesta = pg.waitForResponse((r) => r.url().includes("/api/notify-paseadores"), { timeout: 90000 })
   await fila.getByRole("button", { name: /Privado/ }).click()
   await fila.getByRole("button", { name: /Público/ }).waitFor({ timeout: 20000 })
+  await respuesta
+  const segundos = (Date.now() - inicio) / 1000
   // Endy no ve nada nuevo en su pantalla (así lo pidió Diego): ni mensajes ni avisos
-  await pg.waitForTimeout(8000)
+  await pg.waitForTimeout(1500)
   if ((await pg.locator("text=/Se avisó a|Paseo publicado/").count()) === 0) b.ok("Publicar se ve igual que antes para Endy (sin mensajes nuevos)")
   else b.falla("Apareció un mensaje nuevo en la pantalla de Endy")
   if ((await pg.locator("text=/no se pudo avisar/").count()) === 0) b.ok("Sin aviso de error: el anuncio salió")
@@ -99,12 +103,22 @@ try {
     const waIds = (notif ?? []).filter((x) => x.canal === "whatsapp").map((x) => x.profile_id)
     const { data: perfiles } = await db.from("profiles").select("id, phone, city, manual_version, manual_accepted_at, wa_rebotes").in("id", waIds.length ? waIds : ["00000000-0000-0000-0000-000000000000"])
     const tels = (perfiles ?? []).map((p) => t10(p.phone))
-    if (waIds.length >= 1 && waIds.length <= 5) b.ok("La ola 1 paga máximo 5 WhatsApp (antes ~62)", `${waIds.length} WhatsApp`)
-    else b.falla("La ola 1 no mandó o pagó de más", `${waIds.length} WhatsApp`)
+    // Esperado: TODOS los paseadores de la ciudad que pueden recibirlo (como
+    // siempre), menos el desperdicio: Endy, números muertos, teléfonos repetidos
+    const { data: todos } = await db.from("profiles").select("id, phone, city, banned, wa_rebotes").eq("role", "paseador")
+    const telsEsperados = new Set(
+      (todos ?? [])
+        .filter((p) => !p.banned && (p.city ?? "chihuahua") === "chihuahua" && (p.wa_rebotes ?? 0) < 2 && t10(p.phone).length === 10 && t10(p.phone) !== TEL_ENDY)
+        .map((p) => t10(p.phone)),
+    )
+    if (waIds.length === telsEsperados.size) b.ok("La vacante le llega a TODOS los que la pueden tomar, como siempre", `${waIds.length} de ${telsEsperados.size}`)
+    else b.falla("A alguien que debía recibir la vacante no le llegó", `${waIds.length} de ${telsEsperados.size}`)
+    if (segundos < 55) b.ok("Alcanza a mandarle a todos antes del límite de tiempo", `${segundos.toFixed(1)} s`)
+    else b.falla("Mandar a todos tarda demasiado: la función se cortaría", `${segundos.toFixed(1)} s`)
     if ((perfiles ?? []).every((p) => (p.city ?? "chihuahua") === "chihuahua")) b.ok("Solo paseadores de la misma ciudad")
     else b.falla("Se le avisó a paseadores de otra ciudad")
-    if ((perfiles ?? []).every((p) => p.manual_accepted_at && (p.wa_rebotes ?? 0) < 2)) b.ok("Solo quien puede tomarlo (manual aceptado, número sano)")
-    else b.falla("Se le pagó WhatsApp a quien no puede tomar el paseo")
+    if ((perfiles ?? []).every((p) => (p.wa_rebotes ?? 0) < 2)) b.ok("Ningún número muerto")
+    else b.falla("Se le mandó a un número que ya rebotó")
     if (new Set(tels).size === tels.length) b.ok("Ningún teléfono repetido")
     else b.falla("Un teléfono recibió dos WhatsApp")
     if (!tels.includes(TEL_ENDY)) b.ok("A Endy no se le paga el aviso de la vacante que él publicó")
@@ -123,32 +137,37 @@ try {
     if (waTras === waIds.length) b.ok("Volver a publicar enseguida NO paga otra ronda", `${waIds.length} → ${waTras}`)
     else b.falla("El doble clic pagó más WhatsApp", `${waIds.length} → ${waTras}`)
 
-    // 5. Ola 2: se adelanta el reloj 50 minutos y corre el cron (simulado)
+    // 5. El reloj ya no manda olas extra: una sola ronda, a todos
     await db.from("vacante_avisos").update({ ultima_ola_at: new Date(Date.now() - 50 * 60000).toISOString() }).eq("reservation_id", reservaId)
     const cron2 = await fetch(`${base}/api/cron/avisos`).then((r) => r.json())
-    const mia2 = (cron2.vacantes ?? []).find((v) => v.ola === 2)
-    const { data: notif2 } = await db.from("vacante_notificados").select("profile_id, ola").eq("reservation_id", reservaId).eq("canal", "whatsapp")
-    const ola2 = (notif2 ?? []).filter((x) => x.ola === 2).map((x) => x.profile_id)
-    if (mia2 && mia2.whatsapp <= 10 && ola2.length === mia2.whatsapp) b.ok("A los 45 min sin paseador sale la ola 2 (máx 10)", `${mia2.whatsapp} WhatsApp`)
-    else b.falla("La ola 2 no salió o pagó de más", JSON.stringify(cron2.vacantes ?? []).slice(0, 200))
-    if (ola2.every((id) => !waIds.includes(id))) b.ok("La ola 2 no repite a nadie de la ola 1")
-    else b.falla("La ola 2 le volvió a pagar a alguien de la ola 1")
-    const cron3 = await fetch(`${base}/api/cron/avisos`).then((r) => r.json())
-    if (!(cron3.vacantes ?? []).some((v) => v.ola > 0)) b.ok("Después de la ola 2 el reloj ya no manda nada más")
-    else b.falla("El reloj siguió mandando olas", JSON.stringify(cron3.vacantes).slice(0, 200))
+    const { count: waTrasReloj } = await db.from("vacante_notificados").select("*", { count: "exact", head: true }).eq("reservation_id", reservaId).eq("canal", "whatsapp")
+    if (!(cron2.vacantes ?? []).some((v) => v.ola > 0) && waTrasReloj === waIds.length) b.ok("El reloj no manda rondas extra por su cuenta")
+    else b.falla("El reloj mandó otra ronda", JSON.stringify(cron2.vacantes ?? []).slice(0, 200))
 
-    // 6. Alguien la toma y luego la suelta: ciclo nuevo automático
+    // 6. Alguien la toma y la suelta: como antes, NO se re-anuncia sola
     await db.from("reservations").update({ status: "confirmada", walker_id: cuenta.id }).eq("id", reservaId)
     await fetch(`${base}/api/cron/avisos`)
-    const { data: est1 } = await db.from("vacante_avisos").select("tomada_at, ciclo").eq("reservation_id", reservaId).single()
-    if (est1?.tomada_at) b.ok("El reloj anota cuando alguien la tomó")
-    else b.falla("El reloj no vio que la tomaron")
     await db.from("reservations").update({ status: "buscando_paseador", walker_id: null, visibility: "public" }).eq("id", reservaId)
-    const cron4 = await fetch(`${base}/api/cron/avisos`).then((r) => r.json())
-    const { data: est2 } = await db.from("vacante_avisos").select("tomada_at, ciclo, ola").eq("reservation_id", reservaId).single()
-    const re = (cron4.vacantes ?? []).find((v) => v.ola === 1)
-    if (est2?.ciclo === 2 && est2?.ola === 1 && re && re.whatsapp <= 5) b.ok("Si la sueltan, se vuelve a anunciar sola (ciclo 2)", `${re.whatsapp} WhatsApp`)
-    else b.falla("La vacante soltada no se volvió a anunciar", JSON.stringify({ est2, vac: cron4.vacantes }).slice(0, 200))
+    await fetch(`${base}/api/cron/avisos`)
+    const { data: est } = await db.from("vacante_avisos").select("ciclo").eq("reservation_id", reservaId).single()
+    if (est?.ciclo === 1) b.ok("Si la sueltan, no se re-anuncia sola (igual que antes: lo decide Endy)")
+    else b.falla("Se re-anunció sola al soltarla", JSON.stringify(est))
+
+    // 7. Endy la vuelve a publicar (pasados 45 min): sale otra ronda a todos, como antes
+    await db.from("vacante_avisos").update({ ultima_ola_at: new Date(Date.now() - 50 * 60000).toISOString() }).eq("reservation_id", reservaId)
+    await pg.reload({ waitUntil: "networkidle" })
+    const buscador2 = pg.locator('input[placeholder*="Buscar" i]').first()
+    if (await buscador2.count()) await buscador2.fill("PRUEBA WEBIA")
+    const fila2 = pg.locator("tr", { hasText: CLIENTE }).first()
+    await fila2.getByRole("button", { name: /Público/ }).click()
+    await fila2.getByRole("button", { name: /Privado/ }).waitFor({ timeout: 20000 })
+    const resp2 = pg.waitForResponse((r) => r.url().includes("/api/notify-paseadores"), { timeout: 90000 })
+    await fila2.getByRole("button", { name: /Privado/ }).click()
+    await resp2
+    const { data: est2 } = await db.from("vacante_avisos").select("ciclo").eq("reservation_id", reservaId).single()
+    const { count: waRonda2 } = await db.from("vacante_notificados").select("*", { count: "exact", head: true }).eq("reservation_id", reservaId).eq("canal", "whatsapp")
+    if (est2?.ciclo === 2 && waRonda2 === waIds.length) b.ok("Volver a publicar después de 45 min manda otra ronda a todos, como antes", `${waRonda2} WhatsApp`)
+    else b.falla("Volver a publicar no mandó la ronda completa", JSON.stringify({ est2, waRonda2 }))
   }
 
   await ctx.close()

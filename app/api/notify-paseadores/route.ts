@@ -3,6 +3,9 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { getCaller } from "@/lib/api-auth"
 import { anunciarVacante } from "@/lib/vacantes"
 
+// Anunciar una vacante a ~80 paseadores tarda más que los 10 s por omisión
+export const maxDuration = 60
+
 /**
  * Anuncia una vacante a los paseadores (ola 1). Lo llama el botón
  * "Hacer público" del admin. Toda la lógica —quién, por qué canal, oleadas y
