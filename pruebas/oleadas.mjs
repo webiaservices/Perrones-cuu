@@ -79,13 +79,17 @@ try {
   const fila = pg.locator("tr", { hasText: CLIENTE }).first()
   await fila.waitFor({ timeout: 20000 })
   await fila.getByRole("button", { name: /Privado/ }).click()
-  const aviso = pg.locator("text=/Paseo publicado/").first()
-  await aviso.waitFor({ timeout: 30000 })
-  const texto1 = (await aviso.innerText()).replace(/\s+/g, " ")
-  const n = (re) => Number((texto1.match(re) ?? [])[1] ?? NaN)
-  const wa1 = n(/(\d+) por WhatsApp/)
-  if (Number.isFinite(wa1) && wa1 <= 5) b.ok("Endy ve a cuántos se avisó, y la ola 1 paga máximo 5 WhatsApp", texto1.slice(0, 160))
-  else b.falla("El aviso de publicación no dice cuántos WhatsApp, o son más de 5", texto1)
+  await fila.getByRole("button", { name: /Público/ }).waitFor({ timeout: 20000 })
+  // Endy no ve nada nuevo en su pantalla (así lo pidió Diego): ni mensajes ni avisos
+  await pg.waitForTimeout(8000)
+  if ((await pg.locator("text=/Se avisó a|Paseo publicado/").count()) === 0) b.ok("Publicar se ve igual que antes para Endy (sin mensajes nuevos)")
+  else b.falla("Apareció un mensaje nuevo en la pantalla de Endy")
+  if ((await pg.locator("text=/no se pudo avisar/").count()) === 0) b.ok("Sin aviso de error: el anuncio salió")
+  else b.falla("Apareció el aviso rojo de falla al publicar")
+  const { count: wa1Base } = conTablas
+    ? await db.from("vacante_notificados").select("*", { count: "exact", head: true }).eq("reservation_id", reservaId).eq("canal", "whatsapp")
+    : { count: null }
+  const wa1 = wa1Base ?? 0
 
   if (!conTablas) {
     b.ok("Sin la migración, publicar sigue avisando (respaldo): no se queda muda la vacante")
@@ -95,8 +99,8 @@ try {
     const waIds = (notif ?? []).filter((x) => x.canal === "whatsapp").map((x) => x.profile_id)
     const { data: perfiles } = await db.from("profiles").select("id, phone, city, manual_version, manual_accepted_at, wa_rebotes").in("id", waIds.length ? waIds : ["00000000-0000-0000-0000-000000000000"])
     const tels = (perfiles ?? []).map((p) => t10(p.phone))
-    if (waIds.length === wa1) b.ok("La base coincide con lo que se le dijo a Endy", `${waIds.length} WhatsApp`)
-    else b.falla("La base no coincide con el aviso", `aviso ${wa1}, base ${waIds.length}`)
+    if (waIds.length >= 1 && waIds.length <= 5) b.ok("La ola 1 paga máximo 5 WhatsApp (antes ~62)", `${waIds.length} WhatsApp`)
+    else b.falla("La ola 1 no mandó o pagó de más", `${waIds.length} WhatsApp`)
     if ((perfiles ?? []).every((p) => (p.city ?? "chihuahua") === "chihuahua")) b.ok("Solo paseadores de la misma ciudad")
     else b.falla("Se le avisó a paseadores de otra ciudad")
     if ((perfiles ?? []).every((p) => p.manual_accepted_at && (p.wa_rebotes ?? 0) < 2)) b.ok("Solo quien puede tomarlo (manual aceptado, número sano)")
@@ -110,17 +114,13 @@ try {
     else b.falla("La bitácora no cuadra", JSON.stringify(bit ?? []).slice(0, 200))
 
     // 4. Doble publicación: no se vuelve a pagar
-    await pg.locator("text=Cerrar").first().click().catch(() => {})
     await fila.getByRole("button", { name: /Público/ }).click()
-    await pg.waitForTimeout(1500)
+    await fila.getByRole("button", { name: /Privado/ }).waitFor({ timeout: 20000 })
     await fila.getByRole("button", { name: /Privado/ }).click()
-    const aviso2 = pg.locator("text=/No se volvió a avisar/").first()
-    await aviso2.waitFor({ timeout: 30000 }).then(
-      async () => b.ok("Volver a publicar enseguida NO manda otra ronda", (await aviso2.innerText()).slice(0, 120)),
-      () => b.falla("Volver a publicar no dijo nada o mandó otra ronda"),
-    )
+    await fila.getByRole("button", { name: /Público/ }).waitFor({ timeout: 20000 })
+    await pg.waitForTimeout(8000)
     const { count: waTras } = await db.from("vacante_notificados").select("*", { count: "exact", head: true }).eq("reservation_id", reservaId).eq("canal", "whatsapp")
-    if (waTras === waIds.length) b.ok("La base sigue con los mismos WhatsApp tras el doble clic")
+    if (waTras === waIds.length) b.ok("Volver a publicar enseguida NO paga otra ronda", `${waIds.length} → ${waTras}`)
     else b.falla("El doble clic pagó más WhatsApp", `${waIds.length} → ${waTras}`)
 
     // 5. Ola 2: se adelanta el reloj 50 minutos y corre el cron (simulado)

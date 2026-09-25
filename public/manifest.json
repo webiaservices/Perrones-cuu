@@ -3,7 +3,7 @@
   "name": "Perrones Cuu",
   "short_name": "Perrones",
   "description": "Paseadores verificados en Ciudad Chihuahua",
-  "start_url": "/panel",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#f6fbfb",
   "theme_color": "#3DCABD",

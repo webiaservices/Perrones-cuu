@@ -515,9 +515,6 @@ function correoVacanteHtml(params: {
               Ver el paseo →
             </a>
           </div>
-          <p style="margin:24px 0 0;font-size:13px;line-height:1.5;color:#5a8080;text-align:center;">
-            ¿Quieres enterarte al instante y gratis? En tu panel toca <b>Activar avisos en este teléfono</b>.
-          </p>
         </div>
         <div style="background:#f0fafa;padding:16px;text-align:center;font-size:12px;color:#5a8080;">
           Este correo se te envió porque eres paseador registrado en ${BRAND.name}. Si no esperabas este mensaje, ignóralo.

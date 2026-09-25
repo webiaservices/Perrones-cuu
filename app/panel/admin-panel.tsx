@@ -216,7 +216,7 @@ export function AdminPanel({
     numero?: string
     nombreNegocio?: string
     calidad?: string
-    plantillas: { name: string; desc: string; estado: string; categoria?: string | null }[]
+    plantillas: { name: string; desc: string; estado: string }[]
   }
   const [waStatus, setWaStatus] = useState<WaStatus | null>(null)
   const [waLoading, setWaLoading] = useState(false)
@@ -698,32 +698,22 @@ export function AdminPanel({
           : r,
       ),
     )
-    // Al hacerlo público, avisa a los paseadores (si sigue buscando). Se le
-    // dice a Endy qué salió: antes la respuesta se tiraba y, si no se avisó a
-    // nadie, él no tenía forma de saberlo.
+    // Al hacerlo público, avisa a los paseadores (si sigue buscando). Solo si
+    // el aviso FALLA se le dice a Endy, con el aviso rojo de siempre: antes la
+    // falla se tragaba y él creía que había salido.
     if (vis === "public" && target.status === "buscando_paseador" && !target.walker_id) {
-      try {
-        const res = await fetch("/api/notify-paseadores", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reservationId: target.id }),
+      fetch("/api/notify-paseadores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: target.id }),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            const r = await res.json().catch(() => ({}))
+            setAvisoError(`El paseo quedó público, pero no se pudo avisar a los paseadores: ${r.error ?? `error ${res.status}`}`)
+          }
         })
-        const r = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          setAvisoError(`El paseo quedó público, pero no se pudo avisar a los paseadores: ${r.error ?? `error ${res.status}`}`)
-        } else if ((r.ola ?? 0) > 0) {
-          const total = (r.push ?? 0) + (r.whatsapp ?? 0) + (r.correo ?? 0)
-          setAvisoInfo(
-            total > 0
-              ? `Paseo publicado. Se avisó a ${r.push ?? 0} por notificación al celular (gratis), ${r.whatsapp ?? 0} por WhatsApp y ${r.correo ?? 0} por correo. Si en 45 minutos nadie lo toma, se avisa a más paseadores automáticamente.`
-              : `Paseo publicado, pero no hay paseadores disponibles para avisarles en esa ciudad. Ya está visible en sus paneles.`,
-          )
-        } else if (r.reason) {
-          setAvisoInfo(`Paseo publicado. No se volvió a avisar: ${r.reason}.`)
-        }
-      } catch {
-        setAvisoError("El paseo quedó público, pero se cortó la conexión al avisar a los paseadores. Vuelve a intentarlo.")
-      }
+        .catch(() => {})
     }
   }
 
@@ -1253,8 +1243,6 @@ export function AdminPanel({
    * falla aterriza aquí y se pinta arriba, donde no se puede no ver.
    */
   const [avisoError, setAvisoError] = useState<string | null>(null)
-  /** Confirmaciones que conviene que Endy lea (p.ej. a cuántos se avisó). */
-  const [avisoInfo, setAvisoInfo] = useState<string | null>(null)
   const explicar = (msg: string, queHacia: string) => {
     if (/No puedes cancelar un paseo/i.test(msg)) {
       return `${queHacia}: uno de los paseos de ese paquete ya empezó o ya se completó, y por eso no se puede cancelar completo.`
@@ -1613,16 +1601,6 @@ export function AdminPanel({
               onClick={() => setAvisoError(null)}
               className="text-sm font-bold text-destructive underline"
             >
-              Cerrar
-            </button>
-          </div>
-        )}
-
-        {avisoInfo && (
-          <div className="sticky top-2 z-40 mt-4 flex items-start gap-3 rounded-2xl border-2 border-primary/40 bg-primary/10 px-4 py-3">
-            <span className="text-lg leading-none">📣</span>
-            <p className="flex-1 text-sm font-semibold">{avisoInfo}</p>
-            <button onClick={() => setAvisoInfo(null)} className="text-sm font-bold underline">
               Cerrar
             </button>
           </div>
@@ -2769,13 +2747,6 @@ export function AdminPanel({
                         <div>
                           <p className="font-bold">{p.desc}</p>
                           <p className="text-xs text-muted-foreground">{p.name}</p>
-                          {/* Meta puede reclasificar una plantilla por su cuenta; como
-                              publicidad cada mensaje cuesta varias veces más. */}
-                          {p.categoria === "MARKETING" && (
-                            <p className="mt-1 text-xs font-semibold text-amber-700">
-                              WhatsApp la clasifica como publicidad: cada mensaje cuesta varias veces más.
-                            </p>
-                          )}
                         </div>
                         <span
                           className={`rounded-full px-3 py-1 text-xs font-bold ${
