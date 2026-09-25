@@ -325,6 +325,31 @@ async function twilioEstadoPlantilla(
   }
 }
 
+/** Cuándo se creó cada plantilla en Twilio: de ahí cuentan los 60 días que da
+ *  Meta para pedir que revise la categoría. */
+export async function fechasDePlantillas(): Promise<Record<string, string | null>> {
+  const con = getConexion()
+  const out: Record<string, string | null> = {}
+  if (!con || con.proveedor !== "twilio") return out
+  await Promise.all(
+    PLANTILLAS.map(async (p) => {
+      const sid = twilioContentSid(p.nombre)
+      if (!sid) return
+      try {
+        const res = await fetch(`${TWILIO_CONTENT_BASE}/Content/${sid}`, {
+          headers: { Authorization: con.headers.Authorization },
+          cache: "no-store",
+        })
+        const data = await res.json()
+        out[p.nombre] = res.ok ? (data?.date_created ?? null) : null
+      } catch {
+        out[p.nombre] = null
+      }
+    }),
+  )
+  return out
+}
+
 /** Categoría real (UTILITY / MARKETING / ...) de cada plantilla configurada. */
 export async function categoriasDePlantillas(): Promise<Record<string, string | null>> {
   const con = getConexion()

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import crypto from "node:crypto"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { categoriasDePlantillas } from "@/lib/whatsapp"
+import { categoriasDePlantillas, fechasDePlantillas } from "@/lib/whatsapp"
 
 /**
  * Medidor de consumo de WhatsApp. SOLO para Diego (Webia), no para el panel
@@ -169,6 +169,7 @@ export async function GET(req: NextRequest) {
     // más que utility y además Meta limita cuántos de marketing recibe cada
     // persona). Solo lo ve Webia.
     categoriasMeta: categorias,
+    plantillasCreadas: await fechasDePlantillas().catch(() => ({})),
   }
 
   if (url.searchParams.get("json") === "1") return NextResponse.json(resumen)
