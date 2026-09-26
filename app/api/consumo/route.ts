@@ -180,6 +180,52 @@ export async function GET(req: NextRequest) {
     plantillasCreadas: await fechasDePlantillas().catch(() => ({})),
   }
 
+  // &telefonos=1 → historial de entrega por número desde que se prendió el
+  // WhatsApp (25-ago). Sirve para encontrar los números a los que NUNCA les
+  // llega nada. Solo cuentas y los últimos 4 dígitos.
+  if (url.searchParams.get("telefonos") === "1" && SID && TOKEN) {
+    const auth = `Basic ${Buffer.from(`${SID}:${TOKEN}`).toString("base64")}`
+    const desde = url.searchParams.get("desde") ?? "2026-08-25"
+    const porTel = new Map<string, { enviados: number; entregados: number; leidos: number; fallidos: number; codigos: Record<string, number>; ultimo: string }>()
+    let siguiente: string | null =
+      `/2010-04-01/Accounts/${SID}/Messages.json?PageSize=1000&DateSent%3E=${desde}`
+    let paginas = 0
+    while (siguiente && paginas < 20) {
+      paginas++
+      const r = await fetch(`https://api.twilio.com${siguiente}`, { headers: { Authorization: auth }, cache: "no-store" })
+      const d = await r.json()
+      if (!r.ok) break
+      for (const m of d.messages ?? []) {
+        if (!String(m.direction).startsWith("outbound")) continue
+        const t = String(m.to ?? "").replace(/\D/g, "").slice(-10)
+        if (!t) continue
+        const f = porTel.get(t) ?? { enviados: 0, entregados: 0, leidos: 0, fallidos: 0, codigos: {}, ultimo: "" }
+        f.enviados++
+        if (m.status === "delivered" || m.status === "read") f.entregados++
+        if (m.status === "read") f.leidos++
+        if (m.status === "failed" || m.status === "undelivered") {
+          f.fallidos++
+          const c = String(m.error_code ?? "?")
+          f.codigos[c] = (f.codigos[c] ?? 0) + 1
+        }
+        if (String(m.date_sent) > f.ultimo) f.ultimo = String(m.date_sent)
+        porTel.set(t, f)
+      }
+      siguiente = d.next_page_uri ?? null
+    }
+    // Cruce con los perfiles de paseador
+    const { data: perfiles } = await admin.from("profiles").select("id, phone, role, wa_rebotes").eq("role", "paseador")
+    const idPorTel = new Map<string, string[]>()
+    for (const p of perfiles ?? []) {
+      const t = String(p.phone ?? "").replace(/\D/g, "").slice(-10)
+      if (t) idPorTel.set(t, [...(idPorTel.get(t) ?? []), p.id as string])
+    }
+    const filas = [...porTel.entries()]
+      .filter(([t]) => idPorTel.has(t))
+      .map(([t, f]) => ({ tel: `…${t.slice(-4)}`, perfiles: idPorTel.get(t)!, ...f }))
+    return NextResponse.json({ paginas, numeros: filas.length, filas })
+  }
+
   if (url.searchParams.get("json") === "1") return NextResponse.json(resumen)
   return new NextResponse(html(resumen), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } })
 }
