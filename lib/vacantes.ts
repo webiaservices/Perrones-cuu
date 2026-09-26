@@ -9,10 +9,12 @@ import { elegirCorreo, elegirPush, elegirWhatsApp, type Contexto, type Paseador 
 /**
  * Anuncio de vacantes a paseadores.
  *
- * La vacante le llega a TODOS los paseadores que la podrían tomar, igual que
- * siempre. Se probó limitarla a los 5 con más paseos y los datos lo tumbaron:
- * de las vacantes cubiertas hasta sep-2026, TODAS las tomaron paseadores sin
- * ningún paseo previo, el grupo que ese límite dejaba fuera.
+ * Por WhatsApp le llega a TODOS los paseadores que terminaron su registro
+ * (aceptaron el manual) y a los recién registrados. Se probó limitarla a los 5
+ * con más paseos y los datos lo tumbaron (las tomaban paseadores sin paseos
+ * previos); pero todos los que la tomaron YA habían aceptado el manual, y a
+ * los 60 que llevan semanas sin terminar su registro se les pagaban ~400
+ * WhatsApp sin un solo paseo tomado. A esos les llega por correo, en rotación.
  *
  * Lo que sí se quita es el desperdicio puro, lo que nadie puede aprovechar:
  *   · la misma vacante mandada dos o tres veces (el 7-sep salió triple): a
@@ -359,7 +361,18 @@ export async function anunciarVacante(
   // ---- 3. Correo, con tope ----
   let nCorreo = 0
   const cupoCorreo = CUPO_CORREO_POR_OLA[ola - 1] ?? 0
-  const paraCorreo = elegirCorreo(paseadores, ctx, cupoCorreo, alcanzados)
+  const hace60c = new Date(Date.now() - 60 * 86400000).toISOString()
+  const { data: correosPrevios } = await admin
+    .from("vacante_notificados")
+    .select("profile_id, created_at")
+    .eq("canal", "correo")
+    .gte("created_at", hace60c)
+  const ultimoCorreo: Record<string, string> = {}
+  for (const c of correosPrevios ?? []) {
+    const id = c.profile_id as string
+    if ((c.created_at as string) > (ultimoCorreo[id] ?? "")) ultimoCorreo[id] = c.created_at as string
+  }
+  const paraCorreo = elegirCorreo(paseadores, ctx, cupoCorreo, alcanzados, ultimoCorreo)
   if (paraCorreo.length > 0) {
     const ok = await mandarCorreos(
       paraCorreo.map((p) => ({ email: p.email!, name: p.full_name })),

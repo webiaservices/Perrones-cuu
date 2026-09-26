@@ -55,15 +55,26 @@ test("entre los que nunca han tomado uno, primero los de la misma zona", () => {
   assert.equal(elegidos[0].id, "cerca")
 })
 
-test("no se le paga WhatsApp a números malos ni a baneados; sin manual SÍ se le avisa", () => {
-  const sinManual = p({ id: "sinManual", manual_ok: false })
+test("no se le paga WhatsApp a números malos, baneados ni a quien lleva semanas sin terminar su registro", () => {
+  const sinManualViejo = p({ id: "sinManualViejo", manual_ok: false, created_at: "2026-06-01T00:00:00Z" })
   const rebota = p({ wa_rebotes: 2 })
   const sinTel = p({ phone: null })
   const telCorto = p({ phone: "12345" })
   const baneado = p({ banned: true })
   const bueno = p({ id: "bueno" })
-  const elegidos = elegirWhatsApp([sinManual, rebota, sinTel, telCorto, baneado, bueno], ctx(), 10)
-  assert.deepEqual(elegidos.map((x) => x.id).sort(), ["bueno", "sinManual"])
+  const elegidos = elegirWhatsApp([sinManualViejo, rebota, sinTel, telCorto, baneado, bueno], ctx(), 10)
+  assert.deepEqual(elegidos.map((x) => x.id), ["bueno"])
+})
+
+test("al recién registrado (menos de 14 días) SÍ le llega aunque no haya aceptado el manual", () => {
+  const nuevo = p({ id: "nuevo", manual_ok: false, created_at: new Date(Date.now() - 3 * 86400000).toISOString() })
+  assert.deepEqual(elegirWhatsApp([nuevo], ctx(), 10).map((x) => x.id), ["nuevo"])
+})
+
+test("el correo rota: el que lleva más tiempo sin correo va primero", () => {
+  const a = p({ id: "a" }), b = p({ id: "b" }), c = p({ id: "c" })
+  const orden = elegirCorreo([a, b, c], ctx(), 2, new Set(), { a: "2026-09-20", b: "2026-09-01" })
+  assert.deepEqual(orden.map((x) => x.id), ["c", "b"])
 })
 
 test("sin tope, la vacante le llega a TODOS los de la ciudad (como siempre)", () => {

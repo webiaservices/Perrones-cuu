@@ -105,14 +105,24 @@ try {
     const tels = (perfiles ?? []).map((p) => t10(p.phone))
     // Esperado: TODOS los paseadores de la ciudad que pueden recibirlo (como
     // siempre), menos el desperdicio: Endy, números muertos, teléfonos repetidos
-    const { data: todos } = await db.from("profiles").select("id, phone, city, banned, wa_rebotes").eq("role", "paseador")
+    // Esperado: todos los de la ciudad que terminaron su registro (manual) o se
+    // registraron hace menos de 14 días, con número sano y sin repetir
+    const { data: todos } = await db.from("profiles").select("id, phone, city, banned, wa_rebotes, manual_accepted_at, manual_version, created_at").eq("role", "paseador")
+    const nuevo = (p) => Date.now() - new Date(p.created_at).getTime() < 14 * 86400000
     const telsEsperados = new Set(
       (todos ?? [])
         .filter((p) => !p.banned && (p.city ?? "chihuahua") === "chihuahua" && (p.wa_rebotes ?? 0) < 2 && t10(p.phone).length === 10 && t10(p.phone) !== TEL_ENDY)
+        .filter((p) => (p.manual_accepted_at && p.manual_version === "v1") || nuevo(p))
         .map((p) => t10(p.phone)),
     )
-    if (waIds.length === telsEsperados.size) b.ok("La vacante le llega a TODOS los que la pueden tomar, como siempre", `${waIds.length} de ${telsEsperados.size}`)
+    if (waIds.length === telsEsperados.size) b.ok("Le llega a TODOS los que terminaron su registro (y a los recién registrados)", `${waIds.length} de ${telsEsperados.size}`)
     else b.falla("A alguien que debía recibir la vacante no le llegó", `${waIds.length} de ${telsEsperados.size}`)
+    const sinRegistro = (todos ?? []).filter((p) => !p.manual_accepted_at && !nuevo(p)).map((p) => p.id)
+    if (!waIds.some((id) => sinRegistro.includes(id))) b.ok("No se le paga WhatsApp a quien lleva semanas sin terminar su registro")
+    else b.falla("Se le pagó WhatsApp a alguien sin registro terminado")
+    const { count: correos } = await db.from("vacante_notificados").select("*", { count: "exact", head: true }).eq("reservation_id", reservaId).eq("canal", "correo")
+    if ((correos ?? 0) > 0) b.ok("A los que no les llega WhatsApp les llega por correo (en rotación)", `${correos} correos`)
+    else b.falla("No salió ningún correo para los que no reciben WhatsApp")
     if (segundos < 55) b.ok("Alcanza a mandarle a todos antes del límite de tiempo", `${segundos.toFixed(1)} s`)
     else b.falla("Mandar a todos tarda demasiado: la función se cortaría", `${segundos.toFixed(1)} s`)
     if ((perfiles ?? []).every((p) => (p.city ?? "chihuahua") === "chihuahua")) b.ok("Solo paseadores de la misma ciudad")

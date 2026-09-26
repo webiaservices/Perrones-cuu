@@ -4,8 +4,10 @@
  *
  * Lo que pesó en las reglas (medido del 25-ago al 24-sep-2026):
  *   - A los de Chihuahua les llegaban las vacantes de CDMX.
- *   - Quien más toma vacantes son paseadores SIN paseos previos: por eso el
- *     aviso va a todos y el orden solo decide quién va primero en la fila.
+ *   - Quien más toma vacantes son paseadores SIN paseos previos, pero TODOS
+ *     ya habían aceptado el manual. Por eso el WhatsApp va a todos los que
+ *     terminaron su registro (y a los recién registrados), no a quien lleva
+ *     semanas sin terminarlo.
  */
 
 export type Paseador = {
@@ -32,6 +34,10 @@ export type Contexto = {
 }
 
 const tel10 = (t: string | null) => String(t ?? "").replace(/\D/g, "").slice(-10)
+/** Registrado hace menos de 14 días: todavía puede estar terminando su alta. */
+export const DIAS_DE_NUEVO = 14
+export const esNuevo = (p: Paseador, ahora = Date.now()) =>
+  !!p.created_at && ahora - new Date(p.created_at).getTime() < DIAS_DE_NUEVO * 86400000
 const normal = (s: string | null) => (s ?? "").trim().toLowerCase()
 
 /** Paseadores de la ciudad de la vacante que pueden trabajar. */
@@ -89,8 +95,13 @@ export function elegirWhatsApp(
     const t = tel10(p.phone)
     if (t.length < 10) continue
     if ((p.wa_rebotes ?? 0) >= 2) continue
-    // Sin el manual aceptado SÍ se le avisa, como siempre: al querer tomar el
-    // paseo, su panel le pide aceptarlo y ahí mismo lo toma.
+    // Solo quien terminó su registro (aceptó el manual) o se registró hace
+    // menos de 14 días. Backtest del 26-sep-2026: las 4 vacantes que tomó
+    // alguien que no es Endy las tomó un paseador que YA había aceptado el
+    // manual; a los 60 que se registraron hace semanas y nunca lo aceptaron se
+    // les pagaron ~400 WhatsApp sin que ninguno tomara un paseo. En cuanto uno
+    // acepta el manual, vuelve a recibir vacantes solo.
+    if (!p.manual_ok && !esNuevo(p)) continue
     if (ctx.yaAvisados.push.has(p.id) || ctx.yaAvisados.whatsapp.has(p.id)) continue
     if (vistos.has(t)) continue
     vistos.add(t)
@@ -109,10 +120,16 @@ export function elegirCorreo(
   ctx: Contexto,
   cupo: number,
   alcanzadosEnEstaOla: Set<string>,
+  /** Último correo de vacante de cada quien: se rota, el que lleva más sin
+   *  correo va primero, para que el tope no le llegue siempre a los mismos. */
+  ultimoCorreo: Record<string, string> = {},
 ): Paseador[] {
   const elegidos: Paseador[] = []
   const vistos = new Set<string>()
-  for (const p of ordenar(deLaCiudad(paseadores, ctx.ciudad), ctx)) {
+  const enFila = ordenar(deLaCiudad(paseadores, ctx.ciudad), ctx).sort(
+    (a, b) => (ultimoCorreo[a.id] ?? "").localeCompare(ultimoCorreo[b.id] ?? ""),
+  )
+  for (const p of enFila) {
     if (elegidos.length >= cupo) break
     const correo = normal(p.email)
     if (!correo || !correo.includes("@")) continue

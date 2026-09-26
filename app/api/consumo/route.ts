@@ -188,13 +188,20 @@ export async function GET(req: NextRequest) {
     const desde = url.searchParams.get("desde") ?? "2026-08-25"
     const porTel = new Map<string, { enviados: number; entregados: number; leidos: number; fallidos: number; codigos: Record<string, number>; ultimo: string }>()
     let siguiente: string | null =
-      `/2010-04-01/Accounts/${SID}/Messages.json?PageSize=1000&DateSent%3E=${desde}`
+      `/2010-04-01/Accounts/${SID}/Messages.json?PageSize=1000&${encodeURIComponent("DateSent>")}=${desde}`
     let paginas = 0
+    let totalMensajes = 0
+    let errorTwilio: string | null = null
+    type MensajeTw = { direction: string; to: string; status: string; error_code: number | null; date_sent: string }
     while (siguiente && paginas < 20) {
       paginas++
-      const r = await fetch(`https://api.twilio.com${siguiente}`, { headers: { Authorization: auth }, cache: "no-store" })
-      const d = await r.json()
-      if (!r.ok) break
+      const r: Response = await fetch(`https://api.twilio.com${siguiente}`, { headers: { Authorization: auth }, cache: "no-store" })
+      const d: { messages?: MensajeTw[]; next_page_uri?: string | null; message?: string } = await r.json()
+      if (!r.ok) {
+        errorTwilio = d.message ?? `Twilio respondió ${r.status}`
+        break
+      }
+      totalMensajes += (d.messages ?? []).length
       for (const m of d.messages ?? []) {
         if (!String(m.direction).startsWith("outbound")) continue
         const t = String(m.to ?? "").replace(/\D/g, "").slice(-10)
@@ -223,7 +230,7 @@ export async function GET(req: NextRequest) {
     const filas = [...porTel.entries()]
       .filter(([t]) => idPorTel.has(t))
       .map(([t, f]) => ({ tel: `…${t.slice(-4)}`, perfiles: idPorTel.get(t)!, ...f }))
-    return NextResponse.json({ paginas, numeros: filas.length, filas })
+    return NextResponse.json({ paginas, totalMensajes, errorTwilio, numeros: filas.length, filas })
   }
 
   if (url.searchParams.get("json") === "1") return NextResponse.json(resumen)
