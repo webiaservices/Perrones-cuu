@@ -100,6 +100,22 @@ export async function GET(req: NextRequest) {
     twilioError = "Sin credenciales de Twilio en este entorno"
   }
 
+  // Saldo que le queda a la cuenta de Twilio (de ahí sale TODO: Meta + Twilio).
+  // Si llega a cero, Twilio deja de mandar y se cae el WhatsApp de Perrones.
+  let saldo: { monto: number; moneda: string } | null = null
+  if (SID && TOKEN) {
+    try {
+      const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${SID}/Balance.json`, {
+        headers: { Authorization: `Basic ${Buffer.from(`${SID}:${TOKEN}`).toString("base64")}` },
+        cache: "no-store",
+      })
+      const d = await r.json()
+      if (r.ok) saldo = { monto: Number(d.balance), moneda: String(d.currency) }
+    } catch {
+      /* sin saldo en el reporte, no se tumba el medidor */
+    }
+  }
+
   // ---------- 2. Bitácora: qué aviso gastó cada mensaje ----------
   const admin = createAdminClient()
   const { data: envios, error: errBit } = await todas<{ plantilla: string; resultado: string; estado: string | null; message_sid: string | null }>(
@@ -156,7 +172,7 @@ export async function GET(req: NextRequest) {
 
   const resumen = {
     periodo: { desde: desde.toISOString(), hasta: hasta.toISOString(), mes: anterior ? "anterior" : "actual" },
-    twilio: { totalUsd: twilioTotalUsd, detalle: twilio, error: twilioError },
+    twilio: { totalUsd: twilioTotalUsd, detalle: twilio, error: twilioError, saldo },
     bitacora: errBit ? { error: `La bitácora no existe todavía (${errBit.message})` } : { plantillas },
     vacantes: {
       anunciadas: vacantes.size,
