@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import crypto from "node:crypto"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { categoriasDePlantillas, fechasDePlantillas } from "@/lib/whatsapp"
+import { alarmaDeSaldo, saldoTwilio } from "@/lib/saldo"
 
 /**
  * Medidor de consumo de WhatsApp. SOLO para Diego (Webia), no para el panel
@@ -101,20 +102,10 @@ export async function GET(req: NextRequest) {
   }
 
   // Saldo que le queda a la cuenta de Twilio (de ahí sale TODO: Meta + Twilio).
-  // Si llega a cero, Twilio deja de mandar y se cae el WhatsApp de Perrones.
-  let saldo: { monto: number; moneda: string } | null = null
-  if (SID && TOKEN) {
-    try {
-      const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${SID}/Balance.json`, {
-        headers: { Authorization: `Basic ${Buffer.from(`${SID}:${TOKEN}`).toString("base64")}` },
-        cache: "no-store",
-      })
-      const d = await r.json()
-      if (r.ok) saldo = { monto: Number(d.balance), moneda: String(d.currency) }
-    } catch {
-      /* sin saldo en el reporte, no se tumba el medidor */
-    }
-  }
+  // &probar_alarma=1 corre la alarma de saldo bajo en el momento (solo avisa
+  // si de verdad está por debajo del mínimo).
+  const saldo = await saldoTwilio()
+  const alarma = url.searchParams.get("probar_alarma") === "1" ? await alarmaDeSaldo() : null
 
   // ---------- 2. Bitácora: qué aviso gastó cada mensaje ----------
   const admin = createAdminClient()
@@ -173,6 +164,7 @@ export async function GET(req: NextRequest) {
   const resumen = {
     periodo: { desde: desde.toISOString(), hasta: hasta.toISOString(), mes: anterior ? "anterior" : "actual" },
     twilio: { totalUsd: twilioTotalUsd, detalle: twilio, error: twilioError, saldo },
+    alarma,
     bitacora: errBit ? { error: `La bitácora no existe todavía (${errBit.message})` } : { plantillas },
     vacantes: {
       anunciadas: vacantes.size,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { enviarWhatsApp, type ResultadoEnvio } from "@/lib/wa-envios"
 import { mantenimientoDeVacantes, type ResumenOla } from "@/lib/vacantes"
+import { alarmaDeSaldo } from "@/lib/saldo"
 
 // Anunciar una vacante a ~80 paseadores tarda más que los 10 s por omisión
 export const maxDuration = 60
@@ -449,9 +450,23 @@ export async function GET(req: NextRequest) {
     console.error("[cron/avisos] olas:", e instanceof Error ? e.message : e)
   }
 
+  // ============================================================
+  // 6. saldo de Twilio — alarma para Webia, una vez al día
+  // ============================================================
+  // Todo el WhatsApp (Meta + Twilio) sale de ese saldo. Si llega a cero,
+  // Twilio deja de mandar y se cae el WhatsApp de Perrones sin que nadie se
+  // entere (el 26-sep quedaban $0.36 USD). Solo avisa cuando está por
+  // romperse, a las 9:00 de Chihuahua, y solo el reloj de pg_cron (el de
+  // GitHub no es puntual y duplicaría el correo).
+  let saldo: number | null = null
+  if (esPgCron && ahora.getUTCHours() === 15 && ahora.getUTCMinutes() < 15) {
+    saldo = (await alarmaDeSaldo()).saldo
+  }
+
   return NextResponse.json({
     ok: true,
     corridoEn: ahora.toISOString(),
+    saldo,
     reloj: esGitHub ? "github" : esPgCron ? "pg_cron" : "sin llave",
     resumen,
     vacantes,
