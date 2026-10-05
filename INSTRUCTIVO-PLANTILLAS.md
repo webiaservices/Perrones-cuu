@@ -34,7 +34,7 @@ otro orden, los mensajes salen con los datos revueltos.
 **Variables, EN ESTE ORDEN:**
 
 1. `{{1}}` — nombre del cliente
-2. `{{2}}` — lista de fechas y horas, una por renglón
+2. `{{2}}` — lista de fechas y horas, separadas por « · » (WhatsApp no deja saltos de línea en una variable)
 
 **Texto para copiar y pegar:**
 

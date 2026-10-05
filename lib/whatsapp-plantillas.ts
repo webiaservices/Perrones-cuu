@@ -42,7 +42,7 @@ export const PLANTILLAS: Plantilla[] = [
     destinatario: "cliente",
     cuando: "El cliente completa una reserva en perronescuu.com.",
     resumen: "Al cliente cuando agenda su paseo",
-    variables: ["nombre del cliente", "lista de fechas y horas, una por renglón"],
+    variables: ["nombre del cliente", "lista de fechas y horas, separadas por « · » (WhatsApp no deja saltos de línea en una variable)"],
     texto: `Hola {{1}} 🐾 ¡Gracias por reservar con Perrones!
 
 Sus paseos quedaron registrados para:
