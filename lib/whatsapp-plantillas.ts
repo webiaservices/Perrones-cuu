@@ -203,6 +203,24 @@ Este es un número de mensajes automáticos. Para atención personalizada, escr�
   },
 ]
 
+/**
+ * Deja un valor listo para ir dentro de un {{n}}.
+ *
+ * WhatsApp no acepta saltos de línea, tabuladores ni más de 4 espacios seguidos
+ * dentro de una variable. Si llegan, Twilio no la puede mandar como plantilla,
+ * la manda como texto libre y Meta la rebota con 63016. Pasó con
+ * paseador_acepta: la lista de días de un paquete iba un día por renglón y el
+ * paseador nunca recibió los datos del dueño. Cada renglón pasa a ir separado
+ * por " · ".
+ */
+export function variableDePlantilla(valor: string): string {
+  return String(valor ?? "")
+    .split(/\r\n|\r|\n/)
+    .map((renglon) => renglon.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" · ")
+}
+
 /** La env var que guarda el Content SID de una plantilla. */
 export function envVarDe(nombre: string) {
   return `TWILIO_TPL_${nombre.toUpperCase()}`

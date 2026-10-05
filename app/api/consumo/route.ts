@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import crypto from "node:crypto"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { categoriasDePlantillas, fechasDePlantillas } from "@/lib/whatsapp"
+import { categoriasDePlantillas, estadosDePlantillas, fechasDePlantillas } from "@/lib/whatsapp"
 import { alarmaDeSaldo, saldoTwilio } from "@/lib/saldo"
 
 /**
@@ -178,6 +178,7 @@ export async function GET(req: NextRequest) {
     // persona). Solo lo ve Webia.
     categoriasMeta: categorias,
     plantillasCreadas: await fechasDePlantillas().catch(() => ({})),
+    estadosMeta: await estadosDePlantillas().catch(() => ({})),
   }
 
   // &telefonos=1 → historial de entrega por número desde que se prendió el

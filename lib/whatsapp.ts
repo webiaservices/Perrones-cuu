@@ -23,7 +23,7 @@
  * (form-encoded y plantillas por Content SID en vez de por nombre).
  */
 
-import { PLANTILLAS } from "./whatsapp-plantillas"
+import { PLANTILLAS, variableDePlantilla } from "./whatsapp-plantillas"
 
 const GRAPH_VERSION = "v21.0"
 const API_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`
@@ -179,6 +179,8 @@ export async function sendWhatsAppTemplate(
   if (cleaned.length < 10) {
     return { ok: false, skipped: true, reason: `Número inválido: ${to}` }
   }
+  // Ni Twilio ni Meta aceptan saltos de línea dentro de una variable (63016)
+  vars = vars.map(variableDePlantilla)
 
   // --- Twilio: formato propio (form-encoded + Content SID por plantilla) ---
   if (con.proveedor === "twilio") {
@@ -359,6 +361,21 @@ export async function categoriasDePlantillas(): Promise<Record<string, string | 
     PLANTILLAS.map(async (p) => {
       const sid = twilioContentSid(p.nombre)
       out[p.nombre] = sid ? (await twilioEstadoPlantilla(sid, con.headers.Authorization)).categoria : null
+    }),
+  )
+  return out
+}
+
+/** Estado de aprobación (APPROVED / PAUSED / REJECTED ...) de cada plantilla
+ *  configurada. Una que no esté APPROVED sale como texto libre y rebota (63016). */
+export async function estadosDePlantillas(): Promise<Record<string, string | null>> {
+  const con = getConexion()
+  const out: Record<string, string | null> = {}
+  if (!con || con.proveedor !== "twilio") return out
+  await Promise.all(
+    PLANTILLAS.map(async (p) => {
+      const sid = twilioContentSid(p.nombre)
+      out[p.nombre] = sid ? (await twilioEstadoPlantilla(sid, con.headers.Authorization)).estado : null
     }),
   )
   return out

@@ -11,7 +11,8 @@
     "cf:preview": "opennextjs-cloudflare preview",
     "cf:deploy": "opennextjs-cloudflare deploy",
     "probar": "node pruebas/probar.mjs",
-    "probar:vacantes": "node --no-warnings --test pruebas/vacantes.test.ts"
+    "probar:vacantes": "node --no-warnings --test pruebas/vacantes.test.ts",
+    "probar:plantillas": "node --no-warnings --test pruebas/plantillas.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

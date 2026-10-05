@@ -128,7 +128,8 @@ export async function POST(req: NextRequest) {
           reservationId: reservation.id,
         })
       } else {
-        // paseo_confirmado: {{1}} nombre · {{2}} LISTA de fechas, una por renglón.
+        // paseo_confirmado: {{1}} nombre · {{2}} LISTA de fechas (WhatsApp no deja
+        // saltos de línea en una variable: salen separadas por " · ").
         // Endy la pidió así porque un paquete son varios días y mandar solo la
         // primera fecha hacía que el cliente creyera que era un paseo suelto.
         waResult = await enviarWhatsApp(admin, {
